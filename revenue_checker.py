@@ -207,7 +207,7 @@ def main():
             msg = (
                 f"📊 持股月營收新公告\n\n"
                 f"【{name} {stock_id}】{date_text}\n"
-                f"YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%"
+                f"MoM：{mom:+.2f}% YoY：{yoy:+.2f}%"
             )
             send_line_message(msg)
 
