@@ -23,11 +23,15 @@ load_dotenv()  # 自動讀取 .env 檔
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ── 設定：想追蹤的股票清單 ──────────────────────────────
-STOCKS = {
-    "1702": "南僑",
-    "2330": "台積電",
-}
+def load_stocks() -> dict:
+    path = Path("stocks.json")
+    if not path.exists():
+        print("  ⚠️  找不到 stocks.json")
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
+STOCKS = load_stocks()
 URL = "https://mopsov.twse.com.tw/mops/web/ajax_t05st10_ifrs"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
