@@ -5,58 +5,131 @@
 
 import requests
 from bs4 import BeautifulSoup
+from io import StringIO
+import pandas as pd
+import urllib3
 import json
 import os
+import re
+import time
+import random
 from datetime import datetime
 from pathlib import Path
 
+# 隱藏 SSL 警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # ── 設定：想追蹤的股票清單 ──────────────────────────────
 STOCKS = {
-    "2330": "台積電",
-    "2454": "聯發科",
-    "2317": "鴻海",
+    "1702": "南僑",
+    "1907": "永豐餘",
+    "2104": "國際中橡",
+    "2324": "仁寶",
+    "3005": "神基",
 }
 
 URL = "https://mopsov.twse.com.tw/mops/web/ajax_t05st10_ifrs"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     "Referer":    "https://mopsov.twse.com.tw/mops/web/t05st10_ifrs",
     "Content-Type": "application/x-www-form-urlencoded",
 }
-STATE_FILE = "last_state.json"  # 記錄上次的資料狀態
+STATE_FILE = "last_state.json"
 
 
-# ── 爬蟲 ────────────────────────────────────────────────
-def fetch_revenue(stock_id: str) -> list[dict]:
-    payload = (
-        "encodeURIComponent=1&step=1&firstin=1&off=1"
-        "&keyword4=&code1=&TYPEK2=&checkbtn="
-        "&queryName=co_id&inpuType=co_id&TYPEK=all"
-        f"&isnew=true&co_id={stock_id}&year=&month="
-    )
-    resp = requests.post(URL, headers=HEADERS, data=payload, timeout=15)
-    resp.encoding = "utf-8"
+def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
+    """
+    回傳 (data_dict, date_text) 或 ("BLOCKED", reason) 或 (None, reason)
+    data_dict 包含：本月、去年同期、增減百分比、MoM
+    """
+    payload = {
+        "step": "1", "firstin": "1", "off": "1",
+        "queryName": "co_id", "inpuType": "co_id",
+        "TYPEK": "all", "co_id": stock_id,
+        "isnew": "true" if is_new else "false",
+        "year": year, "month": month,
+    }
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-    tables = soup.find_all("table")
-    if not tables:
-        return []
+    try:
+        resp = requests.post(URL, headers=HEADERS, data=payload, verify=False, timeout=20)
+        resp.encoding = "utf-8"
 
-    rows = []
-    for table in tables:
-        header_row = table.find("tr")
-        if not header_row:
-            continue
-        ths = [th.get_text(strip=True) for th in header_row.find_all(["th", "td"])]
-        for tr in table.find_all("tr")[1:]:
-            tds = [td.get_text(strip=True) for td in tr.find_all("td")]
-            if len(tds) >= 2:
-                row = dict(zip(ths, tds)) if ths else {"raw": tds}
-                rows.append(row)
-    return rows
+        # --- 新增：處理投控公司中間頁面 ---
+        if "t05st10_ifrs_form" in resp.text and "詳細資料" in resp.text:
+            # 這是投控公司頁面，我們需要發送第二次 Request (Step 2)
+            # 抓取第一個按鈕對應的 co_id (通常就是母公司)
+            payload["step"] = "2"
+            # 針對 1702 這類標的，維持原本的 co_id 即可，但 step 改成 2 就能穿透進入
+            resp = requests.post(URL, headers=HEADERS, data=payload, verify=False, timeout=20)
+            resp.encoding = "utf-8"
+
+        if "查詢過於頻繁" in resp.text or resp.status_code == 403:
+            return "BLOCKED", "IP 遭封鎖"
+        if "查詢無資料" in resp.text:
+            return None, "查無資料"
+
+        # 解析公告日期
+        soup = BeautifulSoup(resp.text, "html.parser")
+        date_el = soup.find("td", string=lambda x: x and "民國" in x)
+        date_text = date_el.get_text(strip=True) if date_el else ""
+
+        # 用 pandas 解析表格
+        dfs = pd.read_html(StringIO(resp.text))
+        for df in dfs:
+            df_str = df.astype(str)
+            if "本月" not in "".join(df_str.iloc[:, 0].tolist()):
+                continue
+            res = {}
+            for _, row in df.iterrows():
+                row_list = row.tolist()
+                for key in ["本月", "去年同期", "增減百分比"]:
+                    if key in str(row_list[0]):
+                        for val in row_list[1:]:
+                            clean = str(val).replace(",", "").replace("%", "").strip()
+                            if re.match(r"^-?\d+(\.\d+)?$", clean):
+                                res[key] = float(clean)
+                                break
+            if res:
+                return res, date_text
+
+        return None, "解析表格失敗"
+
+    except Exception as e:
+        return None, f"連線錯誤：{e}"
 
 
-# ── 狀態管理（偵測新資料）───────────────────────────────
+def fetch_with_mom(stock_id: str) -> tuple:
+    """抓本月 + 上月，計算 MoM，回傳完整 data_dict"""
+    # 1. 抓本月
+    data, date_text = fetch_revenue(stock_id, is_new=True)
+    if data == "BLOCKED" or data is None:
+        return data, date_text
+
+    # 2. 解析年月
+    date_nums = re.findall(r"\d+", date_text)
+    if not date_nums:
+        return data, date_text
+    curr_y, curr_m = int(date_nums[0]), int(date_nums[1])
+    prev_y = curr_y - 1 if curr_m == 1 else curr_y
+    prev_m = 12       if curr_m == 1 else curr_m - 1
+
+    # 3. 抓上月（短暫延遲）
+    time.sleep(random.uniform(1.0, 2.0))
+    prev_data, _ = fetch_revenue(stock_id, is_new=False, year=str(prev_y), month=f"{prev_m:02d}")
+
+    # 4. 計算 MoM
+    this_val = data.get("本月", 0)
+    mom = 0.0
+    if isinstance(prev_data, dict) and prev_data.get("本月", 0) > 0:
+        mom = (this_val - prev_data["本月"]) / prev_data["本月"] * 100
+    data["MoM"] = round(mom, 2)
+    data["year"] = curr_y
+    data["month"] = curr_m
+
+    return data, date_text
+
+
+# ── 狀態管理 ─────────────────────────────────────────────
 def load_state() -> dict:
     if Path(STATE_FILE).exists():
         with open(STATE_FILE, "r", encoding="utf-8") as f:
@@ -69,32 +142,26 @@ def save_state(state: dict):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-def get_latest_month(rows: list[dict]) -> str:
-    """取出第一筆資料的年月，作為狀態比對用。"""
-    if not rows:
-        return ""
-    first = rows[0]
-    # 欄位名稱可能是「年度」「月份」或合併，取前兩個欄位值串接
-    values = list(first.values())
-    return "_".join(values[:2])
-
-
 # ── LINE Notify 通知 ─────────────────────────────────────
-def send_line_notify(message: str):
-    token = os.environ.get("LINE_NOTIFY_TOKEN", "")
-    if not token:
-        print("  ⚠️  未設定 LINE_NOTIFY_TOKEN，跳過通知")
+def send_line_message(message: str):
+    token   = os.environ.get("LINE_CHANNEL_TOKEN", "")
+    user_id = os.environ.get("LINE_USER_ID", "")
+    if not token or not user_id:
+        print("  ⚠️  未設定 LINE 環境變數")
         return
     resp = requests.post(
-        "https://notify-api.line.me/api/notify",
-        headers={"Authorization": f"Bearer {token}"},
-        data={"message": message},
+        "https://api.line.me/v2/bot/message/push",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+        json={
+            "to": user_id,
+            "messages": [{"type": "text", "text": message}]
+        },
         timeout=10,
     )
-    if resp.status_code == 200:
-        print("  ✅ LINE 通知已發送")
-    else:
-        print(f"  ❌ LINE 通知失敗：{resp.status_code}")
+    print("  ✅ LINE 通知已發送" if resp.status_code == 200 else f"  ❌ 失敗：{resp.status_code} {resp.text}")
 
 
 # ── 主程式 ───────────────────────────────────────────────
@@ -109,35 +176,43 @@ def main():
 
     for stock_id, name in STOCKS.items():
         print(f"  🔍 查詢 {stock_id} {name}...")
-        try:
-            rows = fetch_revenue(stock_id)
-            if not rows:
-                print(f"     ⚠️  查無資料\n")
-                continue
 
-            latest = get_latest_month(rows)
-            prev   = state.get(stock_id, "")
+        data, date_text = fetch_with_mom(stock_id)
 
-            if latest != prev:
-                print(f"     🔔 新資料！{prev} → {latest}")
-                # 印出最新一筆
-                for k, v in rows[0].items():
-                    if k and v:
-                        print(f"       {k}: {v}")
-                new_alerts.append(f"\n【{name} {stock_id}】\n" +
-                                  "\n".join(f"{k}: {v}" for k, v in rows[0].items() if k and v))
-                state[stock_id] = latest
-            else:
-                print(f"     ✅ 無新資料（最新：{latest}）")
-            print()
+        if data == "BLOCKED":
+            print(f"     🛑 IP 被封鎖，停止執行\n")
+            break
 
-        except Exception as e:
-            print(f"     ❌ 錯誤：{e}\n")
+        if data is None:
+            print(f"     ⚠️  {date_text}\n")
+            continue
 
-    # 有新資料才發通知
+        state_key = f"{data.get('year')}_{data.get('month')}"
+        prev_key  = state.get(stock_id, "")
+
+        if state_key != prev_key:
+            yoy = data.get("增減百分比", 0)
+            mom = data.get("MoM", 0)
+            rev = data.get("本月", 0)
+            print(f"     🔔 新公告！{date_text}")
+            print(f"       本月營收：{rev:,.0f} 千元")
+            print(f"       YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%")
+
+            new_alerts.append(
+                f"\n【{name} {stock_id}】{date_text}\n"
+                f"本月營收：{rev:,.0f} 千元\n"
+                f"YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%"
+            )
+            state[stock_id] = state_key
+        else:
+            print(f"     ✅ 無新資料（最新：{state_key}）")
+
+        print()
+        time.sleep(random.uniform(2.0, 4.0))  # 每檔間隔，避免被封
+
     if new_alerts:
         msg = "\n\n📊 台股月營收新公告！" + "".join(new_alerts)
-        send_line_notify(msg)
+        send_line_message(msg)
         save_state(state)
         print("  💾 狀態已更新")
     else:
