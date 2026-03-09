@@ -15,6 +15,9 @@ import time
 import random
 from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()  # 自動讀取 .env 檔
 
 # 隱藏 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -22,10 +25,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ── 設定：想追蹤的股票清單 ──────────────────────────────
 STOCKS = {
     "1702": "南僑",
-    "1907": "永豐餘",
-    "2104": "國際中橡",
-    "2324": "仁寶",
-    "3005": "神基",
+    "2330": "台積電",
 }
 
 URL = "https://mopsov.twse.com.tw/mops/web/ajax_t05st10_ifrs"
@@ -195,14 +195,17 @@ def main():
             mom = data.get("MoM", 0)
             rev = data.get("本月", 0)
             print(f"     🔔 新公告！{date_text}")
-            print(f"       本月營收：{rev:,.0f} 千元")
             print(f"       YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%")
 
-            new_alerts.append(
-                f"\n【{name} {stock_id}】{date_text}\n"
-                f"本月營收：{rev:,.0f} 千元\n"
+            # 每間公司單獨發一則 LINE 訊息
+            msg = (
+                f"📊 台股月營收新公告\n\n"
+                f"【{name} {stock_id}】{date_text}\n"
                 f"YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%"
             )
+            send_line_message(msg)
+
+            new_alerts.append(stock_id)
             state[stock_id] = state_key
         else:
             print(f"     ✅ 無新資料（最新：{state_key}）")
@@ -211,8 +214,6 @@ def main():
         time.sleep(random.uniform(2.0, 4.0))  # 每檔間隔，避免被封
 
     if new_alerts:
-        msg = "\n\n📊 台股月營收新公告！" + "".join(new_alerts)
-        send_line_message(msg)
         save_state(state)
         print("  💾 狀態已更新")
     else:
