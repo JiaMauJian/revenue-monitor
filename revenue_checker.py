@@ -142,8 +142,10 @@ def load_state() -> dict:
 
 
 def save_state(state: dict):
+    # 清除不在 STOCKS 清單內的股票
+    cleaned = {k: v for k, v in state.items() if k in STOCKS}
     with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+        json.dump(cleaned, f, ensure_ascii=False, indent=2)
 
 
 # ── LINE Notify 通知 ─────────────────────────────────────
