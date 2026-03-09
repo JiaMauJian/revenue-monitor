@@ -1,0 +1,47 @@
+name: 台股月營收監控
+
+on:
+  # ── 自動排程：每月 1~10 號，台灣時間早上 9:00（UTC 1:00）──
+  schedule:
+    - cron: '0 1 1-10 * *'
+
+  # ── 手動觸發（在 GitHub 頁面點 Run workflow 測試用）──
+  workflow_dispatch:
+
+jobs:
+  check-revenue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      # 若有 last_state.json 快取，則還原（記住上次狀態）
+      - name: Restore state cache
+        uses: actions/cache@v4
+        with:
+          path: last_state.json
+          key: revenue-state-${{ github.run_id }}
+          restore-keys: |
+            revenue-state-
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run revenue checker
+        env:
+          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
+        run: python revenue_checker.py
+
+      # 把最新狀態存回 cache，下次執行時可比對
+      - name: Save state cache
+        if: always()
+        uses: actions/cache@v4
+        with:
+          path: last_state.json
+          key: revenue-state-${{ github.run_id }}
