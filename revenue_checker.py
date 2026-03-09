@@ -203,7 +203,7 @@ def main():
 
             # 每間公司單獨發一則 LINE 訊息
             msg = (
-                f"📊 台股月營收新公告\n\n"
+                f"📊 持股月營收新公告\n\n"
                 f"【{name} {stock_id}】{date_text}\n"
                 f"YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%"
             )
