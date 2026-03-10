@@ -1,6 +1,5 @@
 """
 台股月營收監控 - GitHub Actions 版
-每月 1~10 號自動執行，偵測到新營收公告時發送 LINE 通知
 """
 
 import requests
@@ -206,7 +205,7 @@ def main():
             # 每間公司單獨發一則 LINE 訊息
             msg = (
                 f"【{name} {stock_id}】{date_text}\n"
-                f"{'📈' if mom >= 0 else '📉'} 月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
+                f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
                 f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
             )
             send_line_message(msg)
