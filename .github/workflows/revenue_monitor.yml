@@ -1,4 +1,4 @@
-name: 台股月營收監控
+name: 豁達人生持股月營收追蹤
 
 on:
   schedule:
