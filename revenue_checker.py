@@ -149,21 +149,17 @@ def save_state(state: dict):
 
 # ── LINE Notify 通知 ─────────────────────────────────────
 def send_line_message(message: str):
-    token   = os.environ.get("LINE_CHANNEL_TOKEN", "")
-    user_id = os.environ.get("LINE_USER_ID", "")
-    if not token or not user_id:
+    token = os.environ.get("LINE_CHANNEL_TOKEN", "")
+    if not token:
         print("  ⚠️  未設定 LINE 環境變數")
         return
     resp = requests.post(
-        "https://api.line.me/v2/bot/message/push",
+        "https://api.line.me/v2/bot/message/broadcast",
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
         },
-        json={
-            "to": user_id,
-            "messages": [{"type": "text", "text": message}]
-        },
+        json={"messages": [{"type": "text", "text": message}]},
         timeout=10,
     )
     print("  ✅ LINE 通知已發送" if resp.status_code == 200 else f"  ❌ 失敗：{resp.status_code} {resp.text}")
