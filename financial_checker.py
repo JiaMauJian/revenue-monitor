@@ -293,8 +293,8 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
             content = pre.get_text().strip()
             msg = parse_attention_summary(name, stock_id, spoke_date, content)
 
-            print(msg)
-            #send_line_message(msg)
+            #print(msg)
+            send_line_message(msg)
             notified.append(key)
             state[f"{stock_id}_attention"] = notified
             print(f"     🔔 注意股公告已發送：{spoke_date}")
