@@ -1,0 +1,43 @@
+name: 豁達人生持股財報追蹤
+
+on:
+  # 財報公告期：Q1(5月)、Q2(8月)、Q3(11月)、年報(3~4月)
+  # 台灣時間下午 6:00（UTC 10:00）每天跑一次
+  schedule:
+    - cron: "0 10 * * *"
+
+  workflow_dispatch:
+
+jobs:
+  check-financial:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run financial checker
+        env:
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python financial_checker.py
+
+      - name: 儲存狀態到 repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add last_fin_state.json
+          git diff --staged --quiet || git commit -m "update fin state $(date +'%Y-%m-%d %H:%M')"
+          git push

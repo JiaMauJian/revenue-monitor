@@ -190,12 +190,10 @@ def load_state() -> dict:
             return json.load(f)
     return {}
 
-
 def save_state(state: dict):
     cleaned = {k: v for k, v in state.items() if k in STOCKS}
     with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cleaned, f, ensure_ascii=False, indent=2)
-
+        json.dump(cleaned, f, ensure_ascii=False, indent=2, sort_keys=True)
 
 # ── LINE 通知 ────────────────────────────────────────────
 def send_line_message(message: str):
