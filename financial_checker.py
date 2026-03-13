@@ -265,7 +265,6 @@ def main():
                 print(f"       毛利率：{gross_m:.1f}%  營業利益率：{oper_m:.1f}%  淨利率：{net_m:.1f}%")
 
                 msg = (
-                    f"📋 財務報表新公告\n\n"
                     f"【{name} {stock_id}】{ROC_YEAR}年 {report['season']}\n"
                     f"毛利率　　 {gross_m:.1f}%\n"
                     f"營業利益率 {oper_m:.1f}%\n"

@@ -199,7 +199,6 @@ def main():
 
             # 每間公司單獨發一則 LINE 訊息
             msg = (
-                f"📋 營收新公告\n\n"
                 f"【{name} {stock_id}】{date_text}\n"
                 f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
                 f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
