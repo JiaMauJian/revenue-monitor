@@ -306,19 +306,14 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
     return False
 
 def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str) -> str:
-    """
-    從注意股公告內文解析最近一月數字，組成濃縮格式
-    找不到就退回完整內文
-    """
-    # 去掉 4. 之後的所有內容
+    # 去掉 4. 之後
     cut = re.search(r"^(.*?)\n4\.", content, re.DOTALL)
     if cut:
         content = cut.group(1).strip()
 
-    # 找最近一月區塊
-    month_match = re.search(r"最近一月.+?(?=\n單位:|$)", content, re.DOTALL)
+    # 兩種格式都支援：上市(單位:) 和 櫃買(===)
+    month_match = re.search(r"最近一月.+?(?=\n單位:|={3,}|$)", content, re.DOTALL)
 
-    # 20260310 → 115/03/10
     year_roc = int(spoke_date[:4]) - 1911
     date_fmt = f"{year_roc}/{spoke_date[4:6]}/{spoke_date[6:8]}"
     header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n"
@@ -328,29 +323,46 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
 
     block = month_match.group(0)
 
-    def get_val(keyword: str) -> float:
-        m = re.search(keyword + r"\s+([\d,.()]+)", block)
-        if not m:
-            return None
-        raw = m.group(1).replace(",", "").replace("(", "-").replace(")", "")
-        try:
-            return float(raw)
-        except Exception:
-            return None
+    def get_val(keywords: list) -> float:
+        for kw in keywords:
+            m = re.search(kw + r"[\s\S]*?([\d,.]+)\s", block)
+            if m:
+                try:
+                    return float(m.group(1).replace(",", ""))
+                except Exception:
+                    pass
+        return None
 
-    revenue  = get_val(r"營業收入")
-    pretax   = get_val(r"稅前淨利")
-    aftertax = get_val(r"歸屬母公司業主淨利")
-    eps      = get_val(r"每股盈餘\(元\)")
+    revenue  = get_val([r"營業收入\(百萬元\)", r"營業收入\(仟元\)", r"營業收入"])
+    pretax   = get_val([r"稅前淨利\(百萬元\)",  r"稅前淨利"])
 
-    period_match = re.search(r"\(([^)]+自結數[^)]*)\)", block)
-    period       = period_match.group(1) if period_match else ""
-    period_short = re.sub(r"\d+年(\d+月.+)", r"\1", period)
+    # 歸屬母公司業主淨利可能換行
+    aft_m    = re.search(r"歸屬母公司業主淨利\s*\n?\s*(?:\(百萬元\))?\s*([\d,.]+)", block)
+    aftertax = float(aft_m.group(1).replace(",", "")) if aft_m else None
+
+    eps_m = re.search(r"每股盈餘\(元\)\s*[　\s]*([\d,.]+)", block)
+    eps   = float(eps_m.group(1).replace(",", "")) if eps_m else None
+
+    # 判斷單位：佰萬元(上市) or 百萬元(櫃買) → 都換算成億元
+    # 佰萬元 = 百萬元，除以100 = 億元
+    unit_m = re.search(r"單位.*?(佰萬元|百萬元|仟元)", block)
+    unit   = unit_m.group(1) if unit_m else "百萬元"
+    divisor = 100 if unit in ("佰萬元", "百萬元") else 100000  # 仟元→億元
+
+    # 期間：上市格式「115年2月自結數」，櫃買格式「115/02」
+    period_m1 = re.search(r"\(([^)]+自結數[^)]*)\)", block)
+    period_m2 = re.search(r"\((\d{3}/\d{2})\)", block)
+    if period_m1:
+        period_short = re.sub(r"\d+年(\d+月.+)", r"\1", period_m1.group(1))
+    elif period_m2:
+        period_short = period_m2.group(1)  # 例如 115/02
+    else:
+        period_short = ""
 
     if revenue and pretax and aftertax and eps is not None:
-        rev_b   = revenue  / 100
-        pre_b   = pretax   / 100
-        aft_b   = aftertax / 100
+        rev_b   = revenue  / divisor
+        pre_b   = pretax   / divisor
+        aft_b   = aftertax / divisor
         pre_pct = round(pre_b / rev_b * 100, 2)
         aft_pct = round(aft_b / rev_b * 100, 2)
         summary = (
