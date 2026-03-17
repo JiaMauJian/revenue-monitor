@@ -16,6 +16,14 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
+import sys
+DEBUG = "--debug" in sys.argv
+DEBUG_STOCKS = {}
+
+for i, arg in enumerate(sys.argv):
+    if arg == "--stock" and i + 1 < len(sys.argv):
+        for s in sys.argv[i + 1].split(","):
+            DEBUG_STOCKS[s] = s
 
 load_dotenv()  # 自動讀取 .env 檔
 
@@ -157,7 +165,9 @@ def main():
     state = load_state()
     new_alerts = []
 
-    for stock_id, name in STOCKS.items():
+    stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
+
+    for stock_id, name in stocks_to_check.items():
         print(f"  🔍 查詢 {stock_id} {name}...")
 
         data, date_text = fetch_with_mom(stock_id)
@@ -173,7 +183,7 @@ def main():
         state_key = f"{data.get('year')}_{data.get('month')}"
         prev_key  = state.get(stock_id, "")
 
-        if state_key != prev_key:
+        if DEBUG or state_key != prev_key:
             yoy = data.get("增減百分比", 0)
             mom = data.get("MoM", 0)
             rev = data.get("本月", 0)
@@ -196,7 +206,7 @@ def main():
         print()
         time.sleep(random.uniform(2.0, 4.0))  # 每檔間隔，避免被封
 
-    if new_alerts:
+    if new_alerts and not DEBUG:
         save_state(state)
         print("  💾 狀態已更新")
     else:
@@ -207,3 +217,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python revenue_checker.py --debug --stock 2330

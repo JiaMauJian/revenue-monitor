@@ -20,6 +20,15 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
+import sys
+
+DEBUG = "--debug" in sys.argv
+DEBUG_STOCKS = {}
+
+for i, arg in enumerate(sys.argv):
+    if arg == "--stock" and i + 1 < len(sys.argv):
+        for s in sys.argv[i + 1].split(","):
+            DEBUG_STOCKS[s] = s
 
 load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -258,7 +267,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
             key      = f"{stock_id}_attention_{spoke_date}_{seq_no}"
             notified = state.get(f"{stock_id}_attention", [])
 
-            if key in notified:
+            if not DEBUG and key in notified:
                 print(f"     ✅ 注意股已通知過：{spoke_date}")
                 continue
 
@@ -418,7 +427,9 @@ def main():
     state   = load_state()
     has_new = False
 
-    for stock_id, name in STOCKS.items():
+    stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
+
+    for stock_id, name in stocks_to_check.items():
         print(f"  🔍 查詢 {stock_id} {name}...")
 
         # ── 財報監控 ──────────────────────────────────────
@@ -446,7 +457,7 @@ def main():
             key      = f"{stock_id}_{display_year}_{display_s}"
             notified = state.get(stock_id, [])
 
-            if key in notified:
+            if not DEBUG and key in notified:
                 print(f"     ✅ 已通知過：{display_year}年 {display_s}")
             else:
                 print(f"     🔔 新財報：{display_year}年 {display_s}（單季）")
@@ -513,7 +524,7 @@ def main():
         print()
         time.sleep(random.uniform(2.0, 4.0))
 
-    if has_new:
+    if has_new and not DEBUG:
         save_state(state)
         print("  💾 狀態已更新")
     else:
@@ -524,3 +535,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# python financial_checker.py --debug --stock 2330
