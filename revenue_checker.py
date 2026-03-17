@@ -15,6 +15,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from line_notify import send_line_message
 
 load_dotenv()  # 自動讀取 .env 檔
 
@@ -146,24 +147,6 @@ def save_state(state: dict):
         json.dump(cleaned, f, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-# ── LINE Notify 通知 ─────────────────────────────────────
-def send_line_message(message: str):
-    token = os.environ.get("LINE_CHANNEL_TOKEN", "")
-    if not token:
-        print("  ⚠️  未設定 LINE 環境變數")
-        return
-    resp = requests.post(
-        "https://api.line.me/v2/bot/message/broadcast",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-        json={"messages": [{"type": "text", "text": message}]},
-        timeout=10,
-    )
-    print("  ✅ LINE 通知已發送" if resp.status_code == 200 else f"  ❌ 失敗：{resp.status_code} {resp.text}")
-
-
 # ── 主程式 ───────────────────────────────────────────────
 def main():
     print(f"\n{'='*55}")
@@ -203,7 +186,7 @@ def main():
                 f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
                 f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
             )
-            send_line_message(msg)
+            send_line_message(msg, mode="broadcast")
 
             new_alerts.append(stock_id)
             state[stock_id] = state_key

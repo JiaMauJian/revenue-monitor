@@ -19,6 +19,7 @@ import random
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from line_notify import send_line_message
 
 load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -293,8 +294,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
             content = pre.get_text().strip()
             msg = parse_attention_summary(name, stock_id, spoke_date, content)
 
-            #print(msg)
-            send_line_message(msg)
+            send_line_message(msg, mode="broadcast")
             notified.append(key)
             state[f"{stock_id}_attention"] = notified
             print(f"     🔔 注意股公告已發送：{spoke_date}")
@@ -396,24 +396,6 @@ def save_state(state: dict):
         json.dump(cleaned, f, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-# ── LINE Notify 通知 ─────────────────────────────────────
-def send_line_message(message: str):
-    token = os.environ.get("LINE_CHANNEL_TOKEN", "")
-    if not token:
-        print("  ⚠️  未設定 LINE 環境變數")
-        return
-    resp = requests.post(
-        "https://api.line.me/v2/bot/message/broadcast",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-        json={"messages": [{"type": "text", "text": message}]},
-        timeout=10,
-    )
-    print("  ✅ LINE 通知已發送" if resp.status_code == 200 else f"  ❌ 失敗：{resp.status_code} {resp.text}")
-
-
 def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios: dict) -> str:
     rev_bil = ratios.get("revenue", 0) / 100000
     return (
@@ -474,15 +456,7 @@ def main():
                 curr_raw = parse_raw_financials(html) if html else {}
 
                 if not curr_raw or curr_raw.get("revenue", 0) == 0:
-                    print(f"       ⚠️  無法解析財務數字")
-                    send_line_message(
-                        f"📋 財務報表新公告\n\n"
-                        f"【{name} {stock_id}】{display_year}年 {display_s}\n"
-                        f"（無法解析財務數字）"
-                    )
-                    notified.append(key)
-                    state[stock_id] = notified
-                    has_new = True
+                    print(f"       ⚠️  無法解析財務數字，本次略過")
                 else:
                     prev_season = PREV_SEASON.get(season)
 
@@ -499,15 +473,7 @@ def main():
                             )
 
                         if not prev_report:
-                            print(f"       ⚠️  找不到 {prev_season}，無法計算單季")
-                            send_line_message(
-                                f"📋 財務報表新公告\n\n"
-                                f"【{name} {stock_id}】{display_year}年 {display_s}\n"
-                                f"（找不到前期資料，無法計算單季）"
-                            )
-                            notified.append(key)
-                            state[stock_id] = notified
-                            has_new = True
+                            print(f"       ⚠️  找不到 {prev_season}，無法計算單季，本次略過")
                         else:
                             time.sleep(random.uniform(1.5, 3.0))
                             prev_html = fetch_report_detail(prev_report["payload"])

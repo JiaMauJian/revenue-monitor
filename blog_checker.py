@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
+from line_notify import send_line_message
 
 load_dotenv()
 
@@ -121,24 +122,6 @@ def save_state(state: dict):
         json.dump(state, f, ensure_ascii=False, indent=2)
 
 
-# ── LINE Notify 通知 ─────────────────────────────────────
-def send_line_message(message: str):
-    token = os.environ.get("LINE_CHANNEL_TOKEN", "")
-    if not token:
-        print("  ⚠️  未設定 LINE 環境變數")
-        return
-    resp = requests.post(
-        "https://api.line.me/v2/bot/message/broadcast",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
-        json={"messages": [{"type": "text", "text": message}]},
-        timeout=10,
-    )
-    print("  ✅ LINE 通知已發送" if resp.status_code == 200 else f"  ❌ 失敗：{resp.status_code} {resp.text}")
-
-
 # ── 主程式 ───────────────────────────────────────────────
 def main():
     print(f"\n{'='*55}")
@@ -175,7 +158,7 @@ def main():
                 f"{art['title']}{date_str}\n"
                 f"{art['link']}"
             )
-            send_line_message(msg)
+            send_line_message(msg, mode="broadcast")
             notified_ids.add(art["id"])
             has_new = True
             time.sleep(0.5)
