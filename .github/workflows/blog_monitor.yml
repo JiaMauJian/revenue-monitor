@@ -1,0 +1,41 @@
+name: 豁達人生部落格新文章追蹤
+
+on:
+  schedule:
+    # 每小時整點執行一次（UTC），台灣時間約每小時
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check-blog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run blog checker
+        env:
+          LINE_CHANNEL_TOKEN: ${{ secrets.LINE_CHANNEL_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+        run: python blog_checker.py
+
+      - name: 儲存狀態到 repo
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add last_blog_state.json
+          git diff --staged --quiet || git commit -m "update blog state $(date +'%Y-%m-%d %H:%M')"
+          git push
