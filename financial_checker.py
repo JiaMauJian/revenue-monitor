@@ -303,7 +303,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
             content = pre.get_text().strip()
             msg = parse_attention_summary(name, stock_id, spoke_date, content)
 
-            send_line_message(msg, mode="broadcast")
+            send_line_message(msg, mode="push" if DEBUG else "broadcast")
             notified.append(key)
             state[f"{stock_id}_attention"] = notified
             print(f"     🔔 注意股公告已發送：{spoke_date}")
@@ -510,7 +510,7 @@ def main():
 
                             rev_b = single_raw["revenue"] / 100000
                             print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
-                            send_line_message(format_msg(name, stock_id, display_year, display_s, ratios))
+                            send_line_message(format_msg(name, stock_id, display_year, display_s, ratios), mode="push" if DEBUG else "broadcast")
 
                             notified.append(key)
                             state[stock_id] = notified

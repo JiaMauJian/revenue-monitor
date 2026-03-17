@@ -174,7 +174,7 @@ def main():
 
         if data == "BLOCKED":
             print(f"     🛑 IP 被封鎖，停止執行\n")
-            break
+            return
 
         if data is None:
             print(f"     ⚠️  {date_text}\n")
@@ -196,7 +196,7 @@ def main():
                 f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
                 f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
             )
-            send_line_message(msg, mode="broadcast")
+            send_line_message(msg, mode="push" if DEBUG else "broadcast")
 
             new_alerts.append(stock_id)
             state[stock_id] = state_key
