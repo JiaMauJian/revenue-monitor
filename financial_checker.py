@@ -22,14 +22,6 @@ from dotenv import load_dotenv
 from line_notify import send_line_message
 import sys
 
-DEBUG = "--debug" in sys.argv
-DEBUG_STOCKS = {}
-
-for i, arg in enumerate(sys.argv):
-    if arg == "--stock" and i + 1 < len(sys.argv):
-        for s in sys.argv[i + 1].split(","):
-            DEBUG_STOCKS[s] = s
-
 load_dotenv()
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -69,6 +61,13 @@ DISPLAY_SEASON = {
     "年報": "Q4",
 }
 
+DEBUG = "--debug" in sys.argv
+DEBUG_STOCKS = {}
+
+for i, arg in enumerate(sys.argv):
+    if arg == "--stock" and i + 1 < len(sys.argv):
+        for s in sys.argv[i + 1].split(","):
+            DEBUG_STOCKS[s] = STOCKS.get(s, s)  # 從 STOCKS 取名稱
 
 # ── 步驟一：取得財報清單 ─────────────────────────────────
 def fetch_report_list(stock_id: str, year: int) -> list:
@@ -168,25 +167,42 @@ def fetch_report_detail(report_payload: dict) -> str:
 
 # ── 解析累計財務原始數字 ─────────────────────────────────
 def parse_raw_financials(html: str) -> dict:
-    """回傳累計原始數字（仟元）{"revenue", "gross", "operating", "net"}"""
     try:
         soup = BeautifulSoup(html, "html.parser")
         pre  = soup.find("pre", style=lambda s: s and "text-align" in s)
         if not pre:
             return {}
 
-        text = pre.get_text()
+        text = pre.get_text().strip()
 
-        def extract_item(keyword: str) -> float:
-            m = re.search(keyword + r"[^\d-]*([\d,]+)", text)
-            return float(m.group(1).replace(",", "")) if m else 0.0
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return {}
 
-        return {
-            "revenue":   extract_item(r"營業收入\(仟元\)"),
-            "gross":     extract_item(r"營業毛利"),
-            "operating": extract_item(r"營業利益"),
-            "net":       extract_item(r"本期淨利"),
-        }
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 256,
+                "system": (
+                    "從台股財務報告中擷取累計數字。"
+                    "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
+                    "格式：{\"revenue\":123456,\"gross\":123456,\"operating\":123456,\"net\":123456,\"eps\":21.72} "
+                    "revenue/gross/operating/net 單位仟元。eps 單位元。找不到填 0。"
+                ),
+                "messages": [{"role": "user", "content": text}],
+            },
+            timeout=20,
+        )
+
+        text_resp = resp.json()["content"][0]["text"]
+        text_resp = re.sub(r"```json\s*|```", "", text_resp).strip()
+        return json.loads(text_resp)
 
     except Exception as e:
         print(f"     ❌ parse_raw_financials 錯誤：{e}")
@@ -212,12 +228,30 @@ def find_report(reports: list, season: str):
             return r
     return None
 
+
+# ── 抓股價（上市 + 上櫃）────────────────────────────────
+def fetch_price(stock_id: str) -> float | None:
+    urls = [
+        f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stock_id}.tw",
+        f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=otc_{stock_id}.tw",
+    ]
+    for url in urls:
+        try:
+            resp = requests.get(url, timeout=10)
+            arr  = resp.json().get("msgArray", [])
+            if not arr:
+                continue
+            z = arr[0].get("z") or arr[0].get("y")
+            if z and z != "-":
+                return float(z)
+        except Exception:
+            continue
+    print(f"     ❌ 抓股價失敗：{stock_id}")
+    return None
+
+
 # ── 注意股公告 ───────────────────────────────────────────
 def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
-    """
-    抓最新的注意股公告，若有新的就發 LINE
-    回傳 True 表示有新公告
-    """
     payload = {
         "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
         "keyword4": "", "code1": "", "TYPEK2": "", "checkbtn": "",
@@ -271,7 +305,6 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
                 print(f"     ✅ 注意股已通知過：{spoke_date}")
                 continue
 
-            # 抓詳細內容
             detail_payload = {
                 "step":       "2",
                 "firstin":    "true",
@@ -293,17 +326,13 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
                 continue
 
             content = pre.get_text().strip()
+            msg     = parse_attention_summary(name, stock_id, spoke_date, content)
 
-            # 去掉 4. 之後的所有內容
-            match = re.search(r"^(.*?)\n4\.", content, re.DOTALL)
-            if match:
-                content = match.group(1).strip()
+            if not DEBUG:
+                send_line_message(msg, mode="broadcast")
+            else:
+                print(f"     📨 [DEBUG] 訊息預覽：\n{msg}")
 
-            # 嘗試解析最近一月數字
-            content = pre.get_text().strip()
-            msg = parse_attention_summary(name, stock_id, spoke_date, content)
-
-            send_line_message(msg, mode="push" if DEBUG else "broadcast")
             notified.append(key)
             state[f"{stock_id}_attention"] = notified
             print(f"     🔔 注意股公告已發送：{spoke_date}")
@@ -314,75 +343,74 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
 
     return False
 
-def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str) -> str:
-    # 去掉 4. 之後
-    cut = re.search(r"^(.*?)\n4\.", content, re.DOTALL)
-    if cut:
-        content = cut.group(1).strip()
 
-    # 兩種格式都支援：上市(單位:) 和 櫃買(===)
-    month_match = re.search(r"最近一月.+?(?=\n單位:|={3,}|$)", content, re.DOTALL)
+def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str) -> str:
 
     year_roc = int(spoke_date[:4]) - 1911
     date_fmt = f"{year_roc}/{spoke_date[4:6]}/{spoke_date[6:8]}"
     header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n"
 
-    if not month_match:
-        return header + "\n" + content
+    # 去掉 4. 之後
+    cut = re.search(r"^(.*?)\n4\.", content, re.DOTALL)
+    if cut:
+        content = cut.group(1).strip()
 
-    block = month_match.group(0)
-
-    def get_val(keywords: list) -> float:
-        for kw in keywords:
-            m = re.search(kw + r"[\s\S]*?([\d,.]+)\s", block)
-            if m:
-                try:
-                    return float(m.group(1).replace(",", ""))
-                except Exception:
-                    pass
-        return None
-
-    revenue  = get_val([r"營業收入\(百萬元\)", r"營業收入\(仟元\)", r"營業收入"])
-    pretax   = get_val([r"稅前淨利\(百萬元\)",  r"稅前淨利"])
-
-    # 歸屬母公司業主淨利可能換行
-    aft_m    = re.search(r"歸屬母公司業主淨利\s*\n?\s*(?:\(百萬元\))?\s*([\d,.]+)", block)
-    aftertax = float(aft_m.group(1).replace(",", "")) if aft_m else None
-
-    eps_m = re.search(r"每股盈餘\(元\)\s*[　\s]*([\d,.]+)", block)
-    eps   = float(eps_m.group(1).replace(",", "")) if eps_m else None
-
-    # 判斷單位：佰萬元(上市) or 百萬元(櫃買) → 都換算成億元
-    # 佰萬元 = 百萬元，除以100 = 億元
-    unit_m = re.search(r"單位.*?(佰萬元|百萬元|仟元)", block)
-    unit   = unit_m.group(1) if unit_m else "百萬元"
-    divisor = 100 if unit in ("佰萬元", "百萬元") else 100000  # 仟元→億元
-
-    # 期間：上市格式「115年2月自結數」，櫃買格式「115/02」
-    period_m1 = re.search(r"\(([^)]+自結數[^)]*)\)", block)
-    period_m2 = re.search(r"\((\d{3}/\d{2})\)", block)
-    if period_m1:
-        period_short = re.sub(r"\d+年(\d+月.+)", r"\1", period_m1.group(1))
-    elif period_m2:
-        period_short = period_m2.group(1)  # 例如 115/02
-    else:
-        period_short = ""
-
-    if revenue and pretax and aftertax and eps is not None:
-        rev_b   = revenue  / divisor
-        pre_b   = pretax   / divisor
-        aft_b   = aftertax / divisor
-        pre_pct = round(pre_b / rev_b * 100, 2)
-        aft_pct = round(aft_b / rev_b * 100, 2)
-        summary = (
-            f"{period_short} "
-            f"營收{rev_b:.2f}／稅前{pre_b:.2f}={pre_pct:.1f}%。"
-            f"營收{rev_b:.2f}／稅後{aft_b:.2f}={aft_pct:.1f}% "
-            f"EPS={eps:.2f}"
+    try:
+        resp = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": "claude-haiku-4-5-20251001",
+                "max_tokens": 128,
+                "system": (
+                    "從台股注意股公告中擷取「最近一月自結」的財務數字。"
+                    "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
+                    "格式：{\"period\":\"115/02\",\"revenue\":4179,\"pretax\":1969,\"aftertax\":1561,\"eps\":16.22} "
+                    "金額單位統一換算成百萬元。找不到填 null。"
+                ),
+                "messages": [{"role": "user", "content": content}],
+            },
+            timeout=20,
         )
-        return header + summary
-    else:
-        return header + "\n" + content
+        text = resp.json()["content"][0]["text"]
+        text = re.sub(r"```json\s*|```", "", text).strip()
+        d = json.loads(text)
+    except Exception as e:
+        print(f"     ❌ Claude 解析失敗：{e}")
+        return header + content
+
+    rev    = d.get("revenue") or 0
+    pre    = d.get("pretax")
+    aft    = d.get("aftertax")
+    eps    = d.get("eps")
+    period = d.get("period", "最近一月")
+
+    if not rev:
+        return header + content
+
+    rev_bil = rev / 100         # 百萬元 → 億元
+
+    lines = [f"【{name} {stock_id}】{date_fmt}（{period}自結）"]
+    lines.append(f"營收　　　 {rev_bil:,.1f} 億元")
+    if pre is not None:
+        lines.append(f"稅前利益率 {pre/rev*100:.1f}%")
+    if aft is not None:
+        lines.append(f"淨利率　　 {aft/rev*100:.1f}%")
+    if eps is not None:
+        lines.append(f"EPS　　　　{eps:.2f} 元")
+    if eps is not None and eps > 0:
+        price = fetch_price(stock_id)
+        if price:
+            annual_eps = round(eps * 12, 2)
+            per        = round(price / annual_eps, 1)
+            lines.append(f"年化本益比 {price} / {annual_eps} = {per}x")
+
+    return "⚠️ 注意股公告\n\n" + "\n".join(lines)
+
 
 # ── 狀態管理 ─────────────────────────────────────────────
 def load_state() -> dict:
@@ -416,6 +444,7 @@ def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios:
         f"淨利率　　 {ratios.get('net', 0):.1f}%"
     )
 
+
 # ── 主程式 ───────────────────────────────────────────────
 def main():
     print(f"\n{'='*55}")
@@ -445,12 +474,10 @@ def main():
         if not all_reports:
             print(f"     ⚠️  查無財報")
         else:
-            # 只取最新一筆
             report  = all_reports[0]
             year    = report["year"]
             season  = report["season"]
 
-            # 年報實際報導的是上一年度的 Q4
             display_year = year - 1 if season == "年報" else year
             display_s    = DISPLAY_SEASON.get(season, season)
 
@@ -499,6 +526,7 @@ def main():
                                     "gross":     curr_raw["gross"]     - prev_raw["gross"],
                                     "operating": curr_raw["operating"] - prev_raw["operating"],
                                     "net":       curr_raw["net"]       - prev_raw["net"],
+                                    "eps":       curr_raw.get("eps", 0) - prev_raw.get("eps", 0),
                                 }
 
                             ratios = calc_ratios(
@@ -510,7 +538,10 @@ def main():
 
                             rev_b = single_raw["revenue"] / 100000
                             print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
-                            send_line_message(format_msg(name, stock_id, display_year, display_s, ratios), mode="push" if DEBUG else "broadcast")
+                            if not DEBUG:
+                                send_line_message(format_msg(name, stock_id, display_year, display_s, ratios))
+                            else:
+                                print(f"     📨 [DEBUG] 訊息預覽：\n{format_msg(name, stock_id, display_year, display_s, ratios)}")
 
                             notified.append(key)
                             state[stock_id] = notified
