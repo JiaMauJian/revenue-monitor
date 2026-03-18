@@ -365,7 +365,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
             },
             json={
                 "model": "claude-haiku-4-5-20251001",
-                "max_tokens": 128,
+                "max_tokens": 256,
                 "system": (
                     "從台股注意股公告中擷取「最近一月自結」的財務數字。"
                     "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
@@ -407,7 +407,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
         if price:
             annual_eps = round(eps * 12, 2)
             per        = round(price / annual_eps, 1)
-            lines.append(f"年化本益比 {price} / {annual_eps} = {per}x")
+            lines.append(f"年化本益比 {price} / {annual_eps} = {per}")
 
     return "⚠️ 注意股公告\n\n" + "\n".join(lines)
 
