@@ -6,6 +6,10 @@ on:
     - cron: "0 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: blog-monitor
+  cancel-in-progress: false
+
 jobs:
   check-blog:
     runs-on: ubuntu-latest
