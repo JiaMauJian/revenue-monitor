@@ -14,6 +14,52 @@ import os
 import requests
 
 
+def send_line_image(image_url: str, mode: str = "auto") -> bool:
+    """發送 LINE 圖片訊息（需公開 HTTPS URL）。"""
+    token   = os.environ.get("LINE_CHANNEL_TOKEN", "")
+    user_id = os.environ.get("LINE_USER_ID", "")
+
+    if not token:
+        print("  ⚠️  未設定 LINE_CHANNEL_TOKEN")
+        return False
+
+    if mode == "auto":
+        actual_mode = "push" if user_id else "broadcast"
+    else:
+        actual_mode = mode
+
+    if actual_mode == "push" and not user_id:
+        actual_mode = "broadcast"
+
+    headers = {
+        "Content-Type":  "application/json",
+        "Authorization": f"Bearer {token}",
+    }
+    image_msg = {
+        "type":               "image",
+        "originalContentUrl": image_url,
+        "previewImageUrl":    image_url,
+    }
+
+    if actual_mode == "push":
+        url  = "https://api.line.me/v2/bot/message/push"
+        body = {"to": user_id, "messages": [image_msg]}
+    else:
+        url  = "https://api.line.me/v2/bot/message/broadcast"
+        body = {"messages": [image_msg]}
+
+    try:
+        resp = requests.post(url, headers=headers, json=body, timeout=10)
+        if resp.status_code == 200:
+            print(f"  ✅ LINE 圖表已發送（{actual_mode}）")
+            return True
+        print(f"  ❌ LINE 圖表發送失敗（{actual_mode}）：{resp.status_code} {resp.text}")
+        return False
+    except Exception as e:
+        print(f"  ❌ LINE 圖表發送例外：{e}")
+        return False
+
+
 def send_line_message(message: str, mode: str = "auto") -> bool:
     """
     發送 LINE 訊息。

@@ -67,7 +67,7 @@ DEBUG_STOCKS = {}
 for i, arg in enumerate(sys.argv):
     if arg == "--stock" and i + 1 < len(sys.argv):
         for s in sys.argv[i + 1].split(","):
-            DEBUG_STOCKS[s] = STOCKS.get(s, s)  # 從 STOCKS 取名稱
+            DEBUG_STOCKS[s] = STOCKS.get(s, {"name": s, "type": ""})  # 從 STOCKS 取名稱
 
 # ── 步驟一：取得財報清單 ─────────────────────────────────
 def fetch_report_list(stock_id: str, year: int) -> list:
@@ -251,7 +251,7 @@ def fetch_price(stock_id: str) -> float | None:
 
 
 # ── 注意股公告 ───────────────────────────────────────────
-def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
+def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str = "") -> bool:
     payload = {
         "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
         "keyword4": "", "code1": "", "TYPEK2": "", "checkbtn": "",
@@ -326,7 +326,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
                 continue
 
             content = pre.get_text().strip()
-            msg     = parse_attention_summary(name, stock_id, spoke_date, content)
+            msg     = parse_attention_summary(name, stock_id, spoke_date, content, stock_type)
 
             if not DEBUG:
                 send_line_message(msg, mode="broadcast")
@@ -344,11 +344,11 @@ def check_attention_stock(stock_id: str, name: str, state: dict) -> bool:
     return False
 
 
-def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str) -> str:
+def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str, stock_type: str = "") -> str:
 
     year_roc = int(spoke_date[:4]) - 1911
     date_fmt = f"{year_roc}/{spoke_date[4:6]}/{spoke_date[6:8]}"
-    header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n"
+    header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n類型：{stock_type}\n"
 
     # 去掉 4. 之後
     cut = re.search(r"^(.*?)\n4\.", content, re.DOTALL)
@@ -394,7 +394,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
 
     rev_bil = rev / 100         # 百萬元 → 億元
 
-    lines = [f"【{name} {stock_id}】{date_fmt}（{period}自結）"]
+    lines = [f"【{name} {stock_id}】{date_fmt}（{period}自結）", f"類型：{stock_type}"]
     lines.append(f"營收　　　 {rev_bil:,.1f} 億元")
     if pre is not None:
         lines.append(f"稅前利益率 {pre/rev*100:.1f}%")
@@ -433,11 +433,12 @@ def save_state(state: dict):
         json.dump(cleaned, f, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios: dict) -> str:
+def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios: dict, stock_type: str = "") -> str:
     rev_bil = ratios.get("revenue", 0) / 100000
     return (
         f"📋 財務報表新公告\n\n"
         f"【{name} {stock_id}】{year}年 {display_season}（單季）\n"
+        f"類型：{stock_type}\n"
         f"營收　　　 {rev_bil:,.0f} 億元\n"
         f"毛利率　　 {ratios.get('gross', 0):.1f}%\n"
         f"營業利益率 {ratios.get('operating', 0):.1f}%\n"
@@ -458,7 +459,9 @@ def main():
 
     stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
 
-    for stock_id, name in stocks_to_check.items():
+    for stock_id, info in stocks_to_check.items():
+        name       = info["name"]
+        stock_type = info["type"]
         print(f"  🔍 查詢 {stock_id} {name}...")
 
         # ── 財報監控 ──────────────────────────────────────
@@ -497,6 +500,7 @@ def main():
                     print(f"       ⚠️  無法解析財務數字，本次略過")
                 else:
                     prev_season = PREV_SEASON.get(season)
+                    single_raw  = None
 
                     if prev_season is None:
                         single_raw = curr_raw
@@ -529,27 +533,28 @@ def main():
                                     "eps":       curr_raw.get("eps", 0) - prev_raw.get("eps", 0),
                                 }
 
-                            ratios = calc_ratios(
-                                single_raw["revenue"],
-                                single_raw["gross"],
-                                single_raw["operating"],
-                                single_raw["net"],
-                            )
+                    if single_raw:
+                        ratios = calc_ratios(
+                            single_raw["revenue"],
+                            single_raw["gross"],
+                            single_raw["operating"],
+                            single_raw["net"],
+                        )
 
-                            rev_b = single_raw["revenue"] / 100000
-                            print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
-                            if not DEBUG:
-                                send_line_message(format_msg(name, stock_id, display_year, display_s, ratios))
-                            else:
-                                print(f"     📨 [DEBUG] 訊息預覽：\n{format_msg(name, stock_id, display_year, display_s, ratios)}")
+                        rev_b = single_raw["revenue"] / 100000
+                        print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
+                        if not DEBUG:
+                            send_line_message(format_msg(name, stock_id, display_year, display_s, ratios, stock_type))
+                        else:
+                            print(f"     📨 [DEBUG] 訊息預覽：\n{format_msg(name, stock_id, display_year, display_s, ratios, stock_type)}")
 
-                            notified.append(key)
-                            state[stock_id] = notified
-                            has_new = True
+                        notified.append(key)
+                        state[stock_id] = notified
+                        has_new = True
 
         # ── 注意股公告監控 ────────────────────────────────
         time.sleep(random.uniform(1.0, 2.0))
-        if check_attention_stock(stock_id, name, state):
+        if check_attention_stock(stock_id, name, state, stock_type):
             has_new = True
 
         print()

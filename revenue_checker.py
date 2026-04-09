@@ -16,14 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
+from chart import build_chart, save_chart, get_chart_url, cleanup_removed_charts
 import sys
 DEBUG = "--debug" in sys.argv
 DEBUG_STOCKS = {}
-
-for i, arg in enumerate(sys.argv):
-    if arg == "--stock" and i + 1 < len(sys.argv):
-        for s in sys.argv[i + 1].split(","):
-            DEBUG_STOCKS[s] = s
 
 load_dotenv()  # 自動讀取 .env 檔
 
@@ -40,6 +36,11 @@ def load_stocks() -> dict:
         return json.load(f)
 
 STOCKS = load_stocks()
+
+for i, arg in enumerate(sys.argv):
+    if arg == "--stock" and i + 1 < len(sys.argv):
+        for s in sys.argv[i + 1].split(","):
+            DEBUG_STOCKS[s] = STOCKS.get(s, {"name": s, "type": ""})
 URL = "https://mopsov.twse.com.tw/mops/web/ajax_t05st10_ifrs"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -162,12 +163,17 @@ def main():
     print(f"  執行時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} UTC")
     print(f"{'='*55}\n")
 
-    state = load_state()
-    new_alerts = []
+    cleanup_removed_charts(STOCKS)
+
+    state         = load_state()
+    new_alerts    = []
+    pending_charts = []  # [{stock_id, url}]
 
     stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
 
-    for stock_id, name in stocks_to_check.items():
+    for stock_id, info in stocks_to_check.items():
+        name       = info["name"]
+        stock_type = info["type"]
         print(f"  🔍 查詢 {stock_id} {name}...")
 
         data, date_text = fetch_with_mom(stock_id)
@@ -193,11 +199,26 @@ def main():
             # 每間公司單獨發一則 LINE 訊息
             msg = (
                 f"【{name} {stock_id}】{date_text}\n"
+                f"類型：{stock_type}\n"
                 f"營收：{rev / 100_000:.2f} 億元\n"
                 f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
                 f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
             )
             send_line_message(msg, mode="push" if DEBUG else "broadcast")
+
+            rev_date    = f"{data.get('year', 0) + 1911}/{data.get('month', 0):02d}"
+            chart_bytes = build_chart(name, stock_id,
+                                      latest_rev={"date": rev_date, "value": rev},
+                                      stock_type=stock_type)
+            if chart_bytes:
+                filename = save_chart(stock_id, chart_bytes)
+                if filename:
+                    if DEBUG:
+                        print(f"     🖼️  圖表已存（本機預覽）：charts/{filename}")
+                    else:
+                        url = get_chart_url(filename)
+                        if url:
+                            pending_charts.append({"stock_id": stock_id, "url": url})
 
             new_alerts.append(stock_id)
             state[stock_id] = state_key
@@ -212,6 +233,12 @@ def main():
         print("  💾 狀態已更新")
     else:
         print("  ℹ️  本次無新公告")
+
+    if pending_charts:
+        Path("pending_charts.json").write_text(
+            json.dumps(pending_charts, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"  📋 待發圖表：{len(pending_charts)} 筆")
 
     print(f"\n{'='*55}\n")
 
