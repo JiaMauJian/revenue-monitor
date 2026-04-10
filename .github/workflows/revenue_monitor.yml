@@ -2,8 +2,13 @@ name: 豁達人生持股月營收追蹤
 
 on:
   schedule:
-    - cron: '*/30 * 1-10 * *'
+    # 每月1~10號，台灣時間下午4~9點每小時（UTC 8~13）
+    - cron: '0 8-13 1-10 * *'
   workflow_dispatch:
+
+concurrency:
+  group: revenue-monitor
+  cancel-in-progress: false
 
 jobs:
   check-revenue:

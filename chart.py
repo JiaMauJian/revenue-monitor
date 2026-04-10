@@ -122,7 +122,7 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         if valid:
             px_idx, px_vals = zip(*valid)
             ax1.plot(px_idx, px_vals, color="black", linestyle="--", linewidth=3.0)
-        ax1.set_ylabel("月均價（元）", color="black", fontsize=10)
+        ax1.set_ylabel("月均價", color="black", fontsize=10)
         ax1.tick_params(axis="y", labelcolor="black")
         ax1.grid(axis="y", linestyle="--", linewidth=0.4, alpha=0.3, zorder=1)
 
@@ -147,17 +147,67 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         return None
 
 
+def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "") -> bytes | None:
+    """
+    產生季度獲利指標圖表 PNG bytes（毛利率、營業利益率、稅後純益率）。
+    API 回傳陣列：index 2 = 季別標籤，8 = 毛利率，9 = 營業利益率，10 = 稅後純益率。
+    """
+    try:
+        data = _call("QuarterlyRpt", stock_name, stock_num)
+
+        quarters       = list(data[2])
+        gross_rates    = [float(v) if v is not None else None for v in data[8]]
+        operating_rates = [float(v) if v is not None else None for v in data[9]]
+        net_rates      = [float(v) if v is not None else None for v in data[10]]
+
+        fig, ax = plt.subplots(figsize=(11, 5))
+        x = list(range(len(quarters)))
+
+        def plot_line(vals, color, marker, label):
+            valid = [(i, v) for i, v in enumerate(vals) if v is not None]
+            if valid:
+                xi, yi = zip(*valid)
+                ax.plot(xi, yi, color=color, marker=marker, linewidth=2.0,
+                        markersize=6, label=label)
+
+        plot_line(gross_rates,      "#1f77b4", "D", "毛利率")
+        plot_line(operating_rates,  "#d62728", "s", "營業利益率")
+        plot_line(net_rates,        "#ff7f0e", "^", "(稅後)純益率")
+
+        ax.axhline(0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
+        ax.set_xticks(x)
+        ax.set_xticklabels(quarters, rotation=0, ha="center", fontsize=7)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
+        ax.yaxis.tick_right()
+        ax.yaxis.set_label_position("right")
+        title = f"{stock_name}({stock_num})  {stock_type}  獲利指標(季)" if stock_type else f"{stock_name}({stock_num})獲利指標(季)"
+        ax.set_title(title, fontsize=13, fontweight="bold", pad=10)
+        ax.legend(loc="upper left", fontsize=9)
+        ax.grid(axis="y", linestyle="--", linewidth=0.4, alpha=0.3)
+
+        fig.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=120)
+        plt.close(fig)
+        buf.seek(0)
+        return buf.read()
+
+    except Exception as e:
+        print(f"     ❌ 季報圖表生成失敗：{e}")
+        return None
+
+
 def save_chart(stock_num: str, image_bytes: bytes) -> str | None:
     """
     存圖到 charts/{stock_num}_{YYYYMMDD}.png。
-    先刪除同股票的舊圖，再存新圖。
+    先刪除同股票的舊月營收圖（不動季報圖），再存新圖。
     回傳檔名（如 2408_20260409.png），失敗回傳 None。
     """
     try:
         CHARTS_DIR.mkdir(exist_ok=True)
 
-        # 刪除同股票舊圖
-        for old in CHARTS_DIR.glob(f"{stock_num}_*.png"):
+        # 只刪除月營收圖（檔名格式：stock_num_數字.png），不動季報圖
+        for old in CHARTS_DIR.glob(f"{stock_num}_[0-9]*.png"):
             old.unlink()
 
         filename = f"{stock_num}_{datetime.now().strftime('%Y%m%d')}.png"
@@ -167,6 +217,28 @@ def save_chart(stock_num: str, image_bytes: bytes) -> str | None:
 
     except Exception as e:
         print(f"     ❌ 圖表儲存失敗：{e}")
+        return None
+
+
+def save_quarterly_chart(stock_num: str, image_bytes: bytes) -> str | None:
+    """
+    存季報圖到 charts/{stock_num}_q{YYYYMMDD}.png。
+    先刪除同股票的舊季報圖，再存新圖。
+    回傳檔名，失敗回傳 None。
+    """
+    try:
+        CHARTS_DIR.mkdir(exist_ok=True)
+
+        for old in CHARTS_DIR.glob(f"{stock_num}_q*.png"):
+            old.unlink()
+
+        filename = f"{stock_num}_q{datetime.now().strftime('%Y%m%d')}.png"
+        (CHARTS_DIR / filename).write_bytes(image_bytes)
+        print(f"     ✅ 季報圖表已存：charts/{filename}")
+        return filename
+
+    except Exception as e:
+        print(f"     ❌ 季報圖表儲存失敗：{e}")
         return None
 
 

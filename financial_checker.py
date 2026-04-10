@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
+from chart import build_quarterly_chart, save_quarterly_chart, get_chart_url
 import sys
 
 load_dotenv()
@@ -200,7 +201,11 @@ def parse_raw_financials(html: str) -> dict:
             timeout=20,
         )
 
-        text_resp = resp.json()["content"][0]["text"]
+        body = resp.json()
+        if "content" not in body:
+            print(f"     ❌ Claude API 錯誤：{body.get('error', body)}")
+            return {}
+        text_resp = body["content"][0]["text"]
         text_resp = re.sub(r"```json\s*|```", "", text_resp).strip()
         return json.loads(text_resp)
 
@@ -229,24 +234,28 @@ def find_report(reports: list, season: str):
     return None
 
 
-# ── 抓股價（上市 + 上櫃）────────────────────────────────
-def fetch_price(stock_id: str) -> float | None:
-    urls = [
-        f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=tse_{stock_id}.tw",
-        f"https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=otc_{stock_id}.tw",
-    ]
-    for url in urls:
-        try:
-            resp = requests.get(url, timeout=10)
-            arr  = resp.json().get("msgArray", [])
-            if not arr:
-                continue
-            z = arr[0].get("z") or arr[0].get("y")
-            if z and z != "-":
-                return float(z)
-        except Exception:
-            continue
-    print(f"     ❌ 抓股價失敗：{stock_id}")
+# ── 抓股價 ───────────────────────────────────────────────
+def fetch_price(stock_id: str, stock_name: str) -> float | None:
+    try:
+        resp = requests.post(
+            "https://huodalife.azurewebsites.net/Chart1.aspx/GetPrice",
+            json={
+                "input_option_stock_name": stock_name,
+                "input_option_stock_num":  stock_id,
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        raw = resp.json().get("d", {})
+        if isinstance(raw, str):
+            import json as _json
+            raw = _json.loads(raw)
+        price = raw[1][-1]
+        if price not in (None, ""):
+            return float(price)
+    except Exception as e:
+        print(f"     ❌ 抓股價失敗：{stock_id} {e}")
     return None
 
 
@@ -328,10 +337,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
             content = pre.get_text().strip()
             msg     = parse_attention_summary(name, stock_id, spoke_date, content, stock_type)
 
-            if not DEBUG:
-                send_line_message(msg, mode="broadcast")
-            else:
-                print(f"     📨 [DEBUG] 訊息預覽：\n{msg}")
+            send_line_message(msg, mode="push" if DEBUG else "broadcast")
 
             notified.append(key)
             state[f"{stock_id}_attention"] = notified
@@ -376,7 +382,11 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
             },
             timeout=20,
         )
-        text = resp.json()["content"][0]["text"]
+        body = resp.json()
+        if "content" not in body:
+            print(f"     ❌ Claude API 錯誤：{body.get('error', body)}")
+            return header + content
+        text = body["content"][0]["text"]
         text = re.sub(r"```json\s*|```", "", text).strip()
         d = json.loads(text)
     except Exception as e:
@@ -401,9 +411,9 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
     if aft is not None:
         lines.append(f"淨利率　　 {aft/rev*100:.1f}%")
     if eps is not None:
-        lines.append(f"EPS　　　　{eps:.2f} 元")
+        lines.append(f"ＥＰＳ　　 {eps:.2f} 元")
     if eps is not None and eps > 0:
-        price = fetch_price(stock_id)
+        price = fetch_price(stock_id, name)
         if price:
             annual_eps = round(eps * 12, 2)
             per        = round(price / annual_eps, 1)
@@ -433,17 +443,25 @@ def save_state(state: dict):
         json.dump(cleaned, f, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios: dict, stock_type: str = "") -> str:
+def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios: dict,
+               stock_type: str = "", eps: float = 0, price: float | None = None) -> str:
     rev_bil = ratios.get("revenue", 0) / 100000
-    return (
-        f"📋 財務報表新公告\n\n"
-        f"【{name} {stock_id}】{year}年 {display_season}（單季）\n"
-        f"類型：{stock_type}\n"
-        f"營收　　　 {rev_bil:,.0f} 億元\n"
-        f"毛利率　　 {ratios.get('gross', 0):.1f}%\n"
-        f"營業利益率 {ratios.get('operating', 0):.1f}%\n"
-        f"淨利率　　 {ratios.get('net', 0):.1f}%"
-    )
+    lines = [
+        f"📋 財務報表新公告\n",
+        f"【{name} {stock_id}】{year}年 {display_season}（單季）",
+        f"類型：{stock_type}",
+        f"營收　　　 {rev_bil:,.0f} 億元",
+        f"毛利率　　 {ratios.get('gross', 0):.1f}%",
+        f"營業利益率 {ratios.get('operating', 0):.1f}%",
+        f"淨利率　　 {ratios.get('net', 0):.1f}%",
+    ]
+    if eps and eps > 0:
+        lines.append(f"ＥＰＳ　　 {eps:.2f} 元")
+        if price:
+            annual_eps = round(eps * 4, 2)
+            per        = round(price / annual_eps, 1)
+            lines.append(f"年化本益比 {price} / {annual_eps} = {per}")
+    return "\n".join(lines)
 
 
 # ── 主程式 ───────────────────────────────────────────────
@@ -454,8 +472,9 @@ def main():
     print(f"  查詢年度：民國 {ROC_YEAR} 年 + {ROC_YEAR - 1} 年")
     print(f"{'='*55}\n")
 
-    state   = load_state()
-    has_new = False
+    state          = load_state()
+    has_new        = False
+    pending_charts = []
 
     stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
 
@@ -541,12 +560,26 @@ def main():
                             single_raw["net"],
                         )
 
+                        eps   = single_raw.get("eps", 0)
+                        price = fetch_price(stock_id, name)
                         rev_b = single_raw["revenue"] / 100000
                         print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
-                        if not DEBUG:
-                            send_line_message(format_msg(name, stock_id, display_year, display_s, ratios, stock_type))
-                        else:
-                            print(f"     📨 [DEBUG] 訊息預覽：\n{format_msg(name, stock_id, display_year, display_s, ratios, stock_type)}")
+                        send_line_message(
+                            format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price),
+                            mode="push" if DEBUG else "broadcast",
+                        )
+
+                        # 產生季報獲利指標圖表
+                        chart_bytes = build_quarterly_chart(name, stock_id, stock_type)
+                        if chart_bytes:
+                            filename = save_quarterly_chart(stock_id, chart_bytes)
+                            if filename:
+                                if DEBUG:
+                                    print(f"     🖼️  季報圖表已存（本機預覽）：charts/{filename}")
+                                else:
+                                    url = get_chart_url(filename)
+                                    if url:
+                                        pending_charts.append({"stock_id": stock_id, "url": url})
 
                         notified.append(key)
                         state[stock_id] = notified
@@ -565,6 +598,12 @@ def main():
         print("  💾 狀態已更新")
     else:
         print("  ℹ️  本次無新財報或公告")
+
+    if pending_charts:
+        Path("pending_charts.json").write_text(
+            json.dumps(pending_charts, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        print(f"  📋 待發圖表：{len(pending_charts)} 筆")
 
     print(f"\n{'='*55}\n")
 
