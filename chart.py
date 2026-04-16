@@ -181,6 +181,16 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
             operating_rates.append(latest_rates.get("operating"))
             net_rates.append(latest_rates.get("net"))
 
+        def _fmt_quarter(label: str) -> str:
+            """把 "115Q1" 轉成 "2026.1Q"（民國年 → 西元年）"""
+            import re
+            m = re.match(r"(\d+)Q(\d)", label)
+            if m:
+                return f"{int(m.group(1)) + 1911}.{m.group(2)}Q"
+            return label
+
+        x_labels = [_fmt_quarter(q) for q in quarters]
+
         fig, ax = plt.subplots(figsize=(11, 5))
         x = list(range(len(quarters)))
 
@@ -197,7 +207,7 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
 
         ax.axhline(0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
         ax.set_xticks(x)
-        ax.set_xticklabels(quarters, rotation=0, ha="center", fontsize=7)
+        ax.set_xticklabels(x_labels, rotation=0, ha="center", fontsize=7)
         ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
         ax.yaxis.tick_right()
         ax.yaxis.set_label_position("right")
