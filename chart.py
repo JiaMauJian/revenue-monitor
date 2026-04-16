@@ -33,8 +33,16 @@ def _setup_cjk_font():
     ]
     for path in candidates:
         if os.path.exists(path):
+            font_manager.fontManager.addfont(path)
             prop = font_manager.FontProperties(fname=path)
             matplotlib.rcParams["font.family"] = prop.get_name()
+            return
+
+    # 找不到固定路徑時，搜尋系統已安裝的 CJK 字型
+    keywords = ("noto", "cjk", "noto sans cjk", "msjh", "mingliu", "pingfang")
+    for f in font_manager.fontManager.ttflist:
+        if any(k in f.name.lower() for k in keywords):
+            matplotlib.rcParams["font.family"] = f.name
             return
 
 _setup_cjk_font()
@@ -147,18 +155,31 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         return None
 
 
-def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "") -> bytes | None:
+def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
+                           latest_quarter: str | None = None,
+                           latest_rates: dict | None = None) -> bytes | None:
     """
     產生季度獲利指標圖表 PNG bytes（毛利率、營業利益率、稅後純益率）。
     API 回傳陣列：index 2 = 季別標籤，8 = 毛利率，9 = 營業利益率，10 = 稅後純益率。
+
+    latest_quarter: 最新季別標籤，格式如 "114Q4"（民國年+季）
+    latest_rates:   {"gross": 45.2, "operating": 20.1, "net": 18.3}（%）
+                    若 API 尚未收錄此季，會補到圖表最後一點。
     """
     try:
         data = _call("QuarterlyRpt", stock_name, stock_num)
 
-        quarters       = list(data[2])
-        gross_rates    = [float(v) if v is not None else None for v in data[8]]
+        quarters        = list(data[2])
+        gross_rates     = [float(v) if v is not None else None for v in data[8]]
         operating_rates = [float(v) if v is not None else None for v in data[9]]
-        net_rates      = [float(v) if v is not None else None for v in data[10]]
+        net_rates       = [float(v) if v is not None else None for v in data[10]]
+
+        # 若最新季別不在 API 資料中，補到最後
+        if latest_quarter and latest_rates and latest_quarter not in quarters:
+            quarters.append(latest_quarter)
+            gross_rates.append(latest_rates.get("gross"))
+            operating_rates.append(latest_rates.get("operating"))
+            net_rates.append(latest_rates.get("net"))
 
         fig, ax = plt.subplots(figsize=(11, 5))
         x = list(range(len(quarters)))
