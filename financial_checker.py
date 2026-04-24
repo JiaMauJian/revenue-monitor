@@ -15,7 +15,6 @@ import json
 import os
 import re
 import time
-import random
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -152,7 +151,7 @@ def fetch_report_list(stock_id: str, year: int) -> list:
 
     except Exception as e:
         print(f"     ❌ fetch_report_list 錯誤：{e}")
-        return []
+        return "ERROR"
 
 
 # ── 取得財報詳細頁面 ─────────────────────────────────────
@@ -327,7 +326,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
                 "month":      "all",
             }
 
-            time.sleep(random.uniform(1.0, 2.0))
+            time.sleep(30)
             html  = fetch_report_detail(detail_payload)
             soup2 = BeautifulSoup(html, "html.parser")
             pre   = soup2.find("pre", style=lambda s: s and "text-align" in s)
@@ -485,13 +484,35 @@ def main():
 
         # ── 財報監控 ──────────────────────────────────────
         all_reports = []
+        fetch_error = False
         for year in [ROC_YEAR, ROC_YEAR - 1]:
             result = fetch_report_list(stock_id, year)
             if result == "BLOCKED":
                 print(f"     🛑 IP 被封鎖，停止執行\n")
                 return
+            if result == "ERROR":
+                fetch_error = True
+                break
             all_reports.extend(result)
-            time.sleep(random.uniform(1.0, 2.0))
+            time.sleep(30)
+
+        if fetch_error:
+            print(f"     ⚠️  連線失敗，等待 45 秒後重試...")
+            time.sleep(45)
+            all_reports = []
+            retry_error = False
+            for year in [ROC_YEAR, ROC_YEAR - 1]:
+                result = fetch_report_list(stock_id, year)
+                if result in ("BLOCKED", "ERROR"):
+                    retry_error = True
+                    break
+                all_reports.extend(result)
+                time.sleep(30)
+            if retry_error:
+                print(f"     ❌ 重試仍失敗，本次略過")
+                print()
+                time.sleep(30)
+                continue
 
         if not all_reports:
             print(f"     ⚠️  查無財報")
@@ -506,12 +527,26 @@ def main():
             key      = f"{stock_id}_{display_year}_{display_s}"
             notified = state.get(stock_id, [])
 
+            def _period_order(k: str) -> tuple:
+                parts = k.split("_")  # ["8271", "114", "Q3"]
+                try:
+                    y = int(parts[-2])
+                    q = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}.get(parts[-1], 0)
+                    return (y, q)
+                except (IndexError, ValueError):
+                    return (0, 0)
+
+            current_order = _period_order(key)
+            already_newer = any(_period_order(k) > current_order for k in notified)
+
             if not DEBUG and key in notified:
                 print(f"     ✅ 已通知過：{display_year}年 {display_s}")
+            elif not DEBUG and already_newer:
+                print(f"     ⚠️  已有更新期別，略過 {display_year}年 {display_s}")
             else:
                 print(f"     🔔 新財報：{display_year}年 {display_s}（單季）")
 
-                time.sleep(random.uniform(1.5, 3.0))
+                time.sleep(30)
                 html     = fetch_report_detail(report["payload"])
                 curr_raw = parse_raw_financials(html) if html else {}
 
@@ -536,7 +571,7 @@ def main():
                         if not prev_report:
                             print(f"       ⚠️  找不到 {prev_season}，無法計算單季，本次略過")
                         else:
-                            time.sleep(random.uniform(1.5, 3.0))
+                            time.sleep(30)
                             prev_html = fetch_report_detail(prev_report["payload"])
                             prev_raw  = parse_raw_financials(prev_html) if prev_html else {}
 
@@ -591,12 +626,12 @@ def main():
                         has_new = True
 
         # ── 注意股公告監控 ────────────────────────────────
-        time.sleep(random.uniform(1.0, 2.0))
+        time.sleep(30)
         if check_attention_stock(stock_id, name, state, stock_type):
             has_new = True
 
         print()
-        time.sleep(random.uniform(2.0, 4.0))
+        time.sleep(30)
 
     if has_new and not DEBUG:
         save_state(state)
