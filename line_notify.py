@@ -51,12 +51,12 @@ def send_line_image(image_url: str, mode: str = "auto") -> bool:
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=10)
         if resp.status_code == 200:
-            print(f"  ✅ LINE 圖表已發送（{actual_mode}）")
+            print(f"  [OK] LINE 圖表已發送（{actual_mode}）")
             return True
-        print(f"  ❌ LINE 圖表發送失敗（{actual_mode}）：{resp.status_code} {resp.text}")
+        print(f"  [ERR] LINE 圖表發送失敗（{actual_mode}）：{resp.status_code} {resp.text}")
         return False
     except Exception as e:
-        print(f"  ❌ LINE 圖表發送例外：{e}")
+        print(f"  [ERR] LINE 圖表發送例外：{e}")
         return False
 
 
@@ -112,11 +112,11 @@ def send_line_message(message: str, mode: str = "auto") -> bool:
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=10)
         if resp.status_code == 200:
-            print(f"  ✅ LINE 通知已發送（{actual_mode}）")
+            print(f"  [OK] LINE 通知已發送（{actual_mode}）")
             return True
         else:
-            print(f"  ❌ LINE 發送失敗（{actual_mode}）：{resp.status_code} {resp.text}")
+            print(f"  [ERR] LINE 發送失敗（{actual_mode}）：{resp.status_code} {resp.text}")
             return False
     except Exception as e:
-        print(f"  ❌ LINE 發送例外：{e}")
+        print(f"  [ERR] LINE 發送例外：{e}")
         return False

@@ -599,10 +599,9 @@ def main():
                         price = fetch_price(stock_id, name)
                         rev_b = single_raw["revenue"] / 100000
                         print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
-                        send_line_message(
-                            format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price),
-                            mode="push" if DEBUG else "broadcast",
-                        )
+                        msg = format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price)
+                        if DEBUG:
+                            send_line_message(msg, mode="push")
 
                         # 產生季報獲利指標圖表（帶入最新季資料，避免 API 尚未更新）
                         latest_q = f"{display_year}{display_s}"
@@ -619,7 +618,11 @@ def main():
                                 else:
                                     url = get_chart_url(filename)
                                     if url:
-                                        pending_charts.append({"stock_id": stock_id, "url": url})
+                                        pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
+                                    else:
+                                        send_line_message(msg, mode="broadcast")
+                        elif not DEBUG:
+                            send_line_message(msg, mode="broadcast")
 
                         notified.append(key)
                         state[stock_id] = notified

@@ -6,7 +6,7 @@
 import json
 from pathlib import Path
 from dotenv import load_dotenv
-from line_notify import send_line_image
+from line_notify import send_line_image, send_line_message
 
 load_dotenv()
 
@@ -19,11 +19,14 @@ def main():
         return
 
     entries = json.loads(PENDING_FILE.read_text(encoding="utf-8"))
-    print(f"  📤 發送 {len(entries)} 張圖表...")
+    print(f"  📤 發送 {len(entries)} 筆通知...")
 
     for item in entries:
         stock_id = item.get("stock_id", "")
         url      = item.get("url", "")
+        message  = item.get("message", "")
+        if message:
+            send_line_message(message, mode="broadcast")
         if url:
             send_line_image(url, mode="broadcast")
 

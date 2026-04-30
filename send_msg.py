@@ -1,6 +1,4 @@
 import sys
-sys.stdout.reconfigure(encoding="utf-8")
-
 from dotenv import load_dotenv
 load_dotenv()
 from line_notify import send_line_message

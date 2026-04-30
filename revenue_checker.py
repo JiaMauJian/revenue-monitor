@@ -195,7 +195,6 @@ def main():
             print(f"     🔔 新公告！{date_text}")
             print(f"       YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%")
 
-            # 每間公司單獨發一則 LINE 訊息
             msg = (
                 f"【{name} {stock_id}】{date_text}\n"
                 f"類型：{stock_type}\n"
@@ -203,7 +202,8 @@ def main():
                 f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
                 f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
             )
-            send_line_message(msg, mode="push" if DEBUG else "broadcast")
+            if DEBUG:
+                send_line_message(msg, mode="push")
 
             rev_date    = f"{data.get('year', 0) + 1911}/{data.get('month', 0):02d}"
             chart_bytes = build_chart(name, stock_id,
@@ -217,7 +217,11 @@ def main():
                     else:
                         url = get_chart_url(filename)
                         if url:
-                            pending_charts.append({"stock_id": stock_id, "url": url})
+                            pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
+                        else:
+                            send_line_message(msg, mode="broadcast")
+            elif not DEBUG:
+                send_line_message(msg, mode="broadcast")
 
             new_alerts.append(stock_id)
             state[stock_id] = state_key
