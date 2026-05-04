@@ -220,6 +220,8 @@ def main():
                             pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
                         else:
                             send_line_message(msg, mode="broadcast")
+                elif not DEBUG:
+                    send_line_message(msg, mode="broadcast")
             elif not DEBUG:
                 send_line_message(msg, mode="broadcast")
 
@@ -249,4 +251,5 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python revenue_checker.py --debug --stock 2330
+# 測試請用 stocks.json 內的股票（name 才會正確傳給 chart API）
+# python revenue_checker.py --debug --stock 2408

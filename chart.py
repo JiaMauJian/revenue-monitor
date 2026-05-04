@@ -80,6 +80,13 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         price_data = _call("GetPrice", stock_name, stock_num)
 
         # Revenue: [stock_num, stock_name, [dates], [values_千元]]
+        if not isinstance(rev_data, list) or len(rev_data) < 4:
+            print(f"     ❌ 圖表生成失敗：Revenue API 格式異常 → {rev_data}")
+            return None
+        if not isinstance(price_data, list) or len(price_data) < 2:
+            print(f"     ❌ 圖表生成失敗：GetPrice API 格式異常 → {price_data}")
+            return None
+
         rev_dates = list(rev_data[2][-months:])
         rev_vals  = [float(v) / 100_000 if v is not None else 0.0 for v in rev_data[3][-months:]]
 
@@ -92,7 +99,7 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         # GetPrice: [[dates_N], [prices_N+1], [latest_date]]
         p_month_dates = price_data[0]         # N 個月份
         p_prices      = price_data[1]         # N+1 個價格
-        p_latest_date = price_data[2][0] if price_data[2] else None  # "2026/04/08"
+        p_latest_date = price_data[2][0] if len(price_data) > 2 and price_data[2] else None  # "2026/04/08"
 
         # 對齊月均價到營收日期
         price_map = dict(zip(p_month_dates, p_prices[:len(p_month_dates)]))

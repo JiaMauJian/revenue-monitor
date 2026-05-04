@@ -2,8 +2,8 @@ name: 豁達人生持股月營收追蹤
 
 on:
   schedule:
-    # 每月1~10號，台灣時間下午4~9點每小時（UTC 8~13）
-    - cron: '0 8-13 1-10 * *'
+    # 每月1~10號，台灣時間下午4~9點每小時7分（UTC 8~13）
+    - cron: '7 8-13 1-10 * *'
   workflow_dispatch:
 
 concurrency:
@@ -46,6 +46,7 @@ jobs:
           git config user.email "actions@github.com"
           git add last_state.json charts/
           git diff --staged --quiet || git commit -m "update state $(date +'%Y-%m-%d %H:%M')"
+          git pull --rebase
           git push
 
       - name: 發送圖表到 LINE
