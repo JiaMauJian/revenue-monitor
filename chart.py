@@ -23,7 +23,9 @@ CHARTS_DIR = Path("charts")
 
 # ── 中文字型 ────────────────────────────────────────────────
 def _setup_cjk_font():
+    _repo_font = Path(__file__).parent / "fonts" / "NotoSansTC-Regular.ttf"
     candidates = [
+        str(_repo_font),
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
         "/usr/share/fonts/noto-cjk/NotoSansCJKtc-Regular.otf",
         "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
