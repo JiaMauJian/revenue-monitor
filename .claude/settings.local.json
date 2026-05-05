@@ -8,7 +8,16 @@
       "Bash(git push *)",
       "Bash(python -c ' *)",
       "Bash(python3)",
-      "Bash(python analyze_macd_drawdown.py)"
+      "Bash(python analyze_macd_drawdown.py)",
+      "Bash(Get-ChildItem c:\\\\Users\\\\amau7\\\\Desktop\\\\revenue-monitor -Exclude .git)",
+      "Bash(Select-Object Name, LastWriteTime)",
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\amau7\\\\Desktop\\\\revenue-monitor\" | Where-Object { $_.Name -ne '.git' } | Select-Object Name, LastWriteTime)",
+      "Bash(func --version)",
+      "PowerShell(func --version 2>$null)",
+      "PowerShell(if \\(-not $?\\) { \"NOT_INSTALLED\" })"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\amau7\\Desktop"
     ]
   }
 }

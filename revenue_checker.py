@@ -126,7 +126,7 @@ def fetch_with_mom(stock_id: str) -> tuple:
     prev_m = 12       if curr_m == 1 else curr_m - 1
 
     # 3. 抓上月（短暫延遲）
-    time.sleep(30)
+    time.sleep(5)
     prev_data, _ = fetch_revenue(stock_id, is_new=False, year=str(prev_y), month=f"{prev_m:02d}")
 
     # 4. 計算 MoM
@@ -231,7 +231,7 @@ def main():
             print(f"     ✅ 無新資料（最新：{state_key}）")
 
         print()
-        time.sleep(30)  # 每檔間隔，避免被封
+        time.sleep(5)  # 每檔間隔，避免被封
 
     if new_alerts and not DEBUG:
         save_state(state)
