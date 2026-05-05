@@ -1,13 +1,12 @@
 name: 豁達人生持股財報追蹤
 
 on:
-  # 財報公告期（台灣時間下午4~10點每半小時，從 :13 開始，UTC 8~14）
-  # 年報 2/15~3/31、Q1 4/15~5/15、Q2 7/15~8/14、Q3 10/15~11/14
-  schedule:
-    # 台灣時間下午4~10點每半小時
-    - cron: "13,43 8-14 * * *"
-
+  # 使用 https://console.cron-job.org/jobs 觸發
   workflow_dispatch:
+
+concurrency:
+  group: revenue-monitor
+  cancel-in-progress: false
 
 jobs:
   check-financial:

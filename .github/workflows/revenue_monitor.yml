@@ -1,7 +1,9 @@
 name: 豁達人生持股月營收追蹤
 
 on:
+  # 使用 https://console.cron-job.org/jobs 觸發
   workflow_dispatch:
+
 concurrency:
   group: revenue-monitor
   cancel-in-progress: false
