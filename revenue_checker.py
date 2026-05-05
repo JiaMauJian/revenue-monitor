@@ -68,6 +68,7 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
 
         # --- 新增：處理投控公司中間頁面 ---
         if "t05st10_ifrs_form" in resp.text and "詳細資料" in resp.text:
+            time.sleep(3)
             # 這是投控公司頁面，我們需要發送第二次 Request (Step 2)
             # 抓取第一個按鈕對應的 co_id (通常就是母公司)
             payload["step"] = "2"
