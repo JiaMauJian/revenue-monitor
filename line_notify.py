@@ -29,7 +29,8 @@ def send_line_image(image_url: str, mode: str = "auto") -> bool:
         actual_mode = mode
 
     if actual_mode == "push" and not user_id:
-        actual_mode = "broadcast"
+        print("  ⚠️  push 模式需設定 LINE_USER_ID，略過發送")
+        return False
 
     headers = {
         "Content-Type":  "application/json",
@@ -91,8 +92,8 @@ def send_line_message(message: str, mode: str = "auto") -> bool:
         actual_mode = mode
 
     if actual_mode == "push" and not user_id:
-        print("  ⚠️  push 模式需設定 LINE_USER_ID，自動改用 broadcast")
-        actual_mode = "broadcast"
+        print("  ⚠️  push 模式需設定 LINE_USER_ID，略過發送")
+        return False
 
     headers = {
         "Content-Type":  "application/json",

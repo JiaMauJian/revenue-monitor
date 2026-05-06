@@ -4,6 +4,7 @@
 """
 
 import json
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_image, send_line_message
@@ -27,8 +28,10 @@ def main():
         message  = item.get("message", "")
         if message:
             send_line_message(message, mode="broadcast")
+            time.sleep(0.5)
         if url:
             send_line_image(url, mode="broadcast")
+            time.sleep(0.5)
 
     PENDING_FILE.unlink()
     print("  ✅ 圖表發送完成")

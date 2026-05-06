@@ -8,6 +8,7 @@
 
 import io
 import os
+import re
 import json
 from datetime import datetime
 from pathlib import Path
@@ -192,7 +193,6 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
 
         def _fmt_quarter(label: str) -> str:
             """把 "115Q1" 轉成 "2026.1Q"（民國年 → 西元年）"""
-            import re
             m = re.match(r"(\d+)Q(\d)", label)
             if m:
                 return f"{int(m.group(1)) + 1911}.{m.group(2)}Q"

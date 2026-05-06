@@ -248,8 +248,7 @@ def fetch_price(stock_id: str, stock_name: str) -> float | None:
         resp.raise_for_status()
         raw = resp.json().get("d", {})
         if isinstance(raw, str):
-            import json as _json
-            raw = _json.loads(raw)
+            raw = json.loads(raw)
         price = raw[1][-1]
         if price not in (None, ""):
             return float(price)

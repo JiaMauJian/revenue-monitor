@@ -8,7 +8,6 @@ from io import StringIO
 import pandas as pd
 import urllib3
 import json
-import os
 import re
 import time
 from datetime import datetime, timezone
