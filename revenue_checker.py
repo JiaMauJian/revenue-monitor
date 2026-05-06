@@ -205,13 +205,14 @@ def main():
             print(f"     🔔 新公告！{date_text}")
             print(f"       YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%")
 
-            msg = (
-                f"【{name} {stock_id}】{date_text}\n"
-                f"類型：{stock_type}\n"
-                f"營收：{rev / 100_000:.2f} 億元\n"
-                f"月{'增' if mom >= 0 else '減'} {abs(mom):.1f}%　"
-                f"年{'增' if yoy >= 0 else '減'} {abs(yoy):.1f}%"
-            )
+            msg = "\n".join([
+                "📊 月營收新公告\n",
+                f"【{name} {stock_id}】{date_text.replace('民國', '')}",
+                f"類型：{stock_type}",
+                f"營收　　　 {rev / 100_000:.2f} 億元",
+                f"月{'增' if mom >= 0 else '減'}　　　 {abs(mom):.1f}%",
+                f"年{'增' if yoy >= 0 else '減'}　　　 {abs(yoy):.1f}%",
+            ])
             if DEBUG:
                 send_line_message(msg, mode="push")
 

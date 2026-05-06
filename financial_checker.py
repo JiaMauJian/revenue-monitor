@@ -351,7 +351,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
 def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str, stock_type: str = "") -> str:
 
     year_roc = int(spoke_date[:4]) - 1911
-    date_fmt = f"{year_roc}/{spoke_date[4:6]}/{spoke_date[6:8]}"
+    date_fmt = f"{year_roc}年{spoke_date[4:6]}月{spoke_date[6:8]}日"
     header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n類型：{stock_type}\n"
 
     # 去掉 4. 之後
@@ -395,14 +395,19 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
     pre    = d.get("pretax")
     aft    = d.get("aftertax")
     eps    = d.get("eps")
-    period = d.get("period", "最近一月")
+    period_raw = d.get("period", "")
+    if period_raw and "/" in period_raw:
+        py, pm = period_raw.split("/", 1)
+        period_fmt = f"{py}年{pm.zfill(2)}月"
+    else:
+        period_fmt = period_raw or "最近一月"
 
     if not rev:
         return header + content
 
     rev_bil = rev / 100         # 百萬元 → 億元
 
-    lines = [f"【{name} {stock_id}】{date_fmt}（{period}自結）", f"類型：{stock_type}"]
+    lines = [f"【{name} {stock_id}】{date_fmt}（{period_fmt}自結）", f"類型：{stock_type}"]
     lines.append(f"營收　　　 {rev_bil:,.1f} 億元")
     if pre is not None:
         lines.append(f"稅前利益率 {pre/rev*100:.1f}%")
