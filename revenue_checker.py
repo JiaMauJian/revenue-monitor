@@ -11,7 +11,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
@@ -169,12 +169,22 @@ def main():
     new_alerts    = []
     pending_charts = []  # [{stock_id, url}]
 
+    now = datetime.now(timezone.utc)
+    exp_month = now.month - 1 or 12
+    exp_year  = (now.year - 1911) - (1 if now.month == 1 else 0)
+    expected_key = f"{exp_year}_{exp_month}"
+
     stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
 
     for stock_id, info in stocks_to_check.items():
         name       = info["name"]
         stock_type = info["type"]
         print(f"  🔍 查詢 {stock_id} {name}...")
+
+        if not DEBUG and state.get(stock_id) == expected_key:
+            print(f"     ⏭️  已有最新資料（{expected_key}），跳過")
+            print()
+            continue
 
         data, date_text = fetch_with_mom(stock_id)
 

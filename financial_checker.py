@@ -15,7 +15,7 @@ import json
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
@@ -463,6 +463,31 @@ def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios:
     return "\n".join(lines)
 
 
+def _period_order(k: str) -> tuple:
+    parts = k.split("_")
+    try:
+        y = int(parts[-2])
+        q = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}.get(parts[-1], 0)
+        return (y, q)
+    except (IndexError, ValueError):
+        return (0, 0)
+
+
+def get_expected_fin_suffix(now: datetime) -> str:
+    """依申報截止日推算目前預期最新季別（Q1:5/15, Q2:8/14, Q3:11/14, 年報:4/30）"""
+    month, day, roc_year = now.month, now.day, now.year - 1911
+    if month < 4 or (month == 4 and day < 30):
+        return f"{roc_year - 1}_Q3"
+    elif month < 5 or (month == 5 and day < 16):
+        return f"{roc_year - 1}_Q4"
+    elif month < 8 or (month == 8 and day < 15):
+        return f"{roc_year}_Q1"
+    elif month < 11 or (month == 11 and day < 15):
+        return f"{roc_year}_Q2"
+    else:
+        return f"{roc_year}_Q3"
+
+
 # ── 主程式 ───────────────────────────────────────────────
 def main():
     print(f"\n{'='*55}")
@@ -475,12 +500,25 @@ def main():
     has_new        = False
     pending_charts = []
 
+    expected_fin_suffix = get_expected_fin_suffix(datetime.now(timezone.utc))
+
     stocks_to_check = DEBUG_STOCKS if (DEBUG and DEBUG_STOCKS) else STOCKS
 
     for stock_id, info in stocks_to_check.items():
         name       = info["name"]
         stock_type = info["type"]
         print(f"  🔍 查詢 {stock_id} {name}...")
+
+        notified  = state.get(stock_id, [])
+        exp_order = _period_order(f"{stock_id}_{expected_fin_suffix}")
+        if not DEBUG and any(_period_order(k) >= exp_order for k in notified):
+            print(f"     ⏭️  財報已有最新（{expected_fin_suffix}），跳過")
+            time.sleep(5)
+            if check_attention_stock(stock_id, name, state, stock_type):
+                has_new = True
+            print()
+            time.sleep(5)
+            continue
 
         # ── 財報監控 ──────────────────────────────────────
         all_reports = []
@@ -497,7 +535,7 @@ def main():
             time.sleep(5)
 
         if fetch_error:
-            print(f"     ⚠️  連線失敗，等待 45 秒後重試...")
+            print(f"     ⚠️  連線失敗，等待 5 秒後重試...")
             time.sleep(5)
             all_reports = []
             retry_error = False
@@ -524,18 +562,7 @@ def main():
             display_year = year - 1 if season == "年報" else year
             display_s    = DISPLAY_SEASON.get(season, season)
 
-            key      = f"{stock_id}_{display_year}_{display_s}"
-            notified = state.get(stock_id, [])
-
-            def _period_order(k: str) -> tuple:
-                parts = k.split("_")  # ["8271", "114", "Q3"]
-                try:
-                    y = int(parts[-2])
-                    q = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}.get(parts[-1], 0)
-                    return (y, q)
-                except (IndexError, ValueError):
-                    return (0, 0)
-
+            key           = f"{stock_id}_{display_year}_{display_s}"
             current_order = _period_order(key)
             already_newer = any(_period_order(k) > current_order for k in notified)
 
