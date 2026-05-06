@@ -474,15 +474,15 @@ def _period_order(k: str) -> tuple:
 
 
 def get_expected_fin_suffix(now: datetime) -> str:
-    """依申報截止日推算目前預期最新季別（Q1:5/15, Q2:8/14, Q3:11/14, 年報:4/30）"""
-    month, day, roc_year = now.month, now.day, now.year - 1911
-    if month < 4 or (month == 4 and day < 30):
+    """依申報月份推算目前預期最新季別（年報:4月, Q1:5月, Q2:8月, Q3:11月）"""
+    month, roc_year = now.month, now.year - 1911
+    if month <= 3:
         return f"{roc_year - 1}_Q3"
-    elif month < 5 or (month == 5 and day < 16):
+    elif month == 4:
         return f"{roc_year - 1}_Q4"
-    elif month < 8 or (month == 8 and day < 15):
+    elif month <= 7:
         return f"{roc_year}_Q1"
-    elif month < 11 or (month == 11 and day < 15):
+    elif month <= 10:
         return f"{roc_year}_Q2"
     else:
         return f"{roc_year}_Q3"
