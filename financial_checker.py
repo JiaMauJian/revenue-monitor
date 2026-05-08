@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
-from chart import build_quarterly_chart, save_quarterly_chart, get_chart_url
+from chart import build_fin_combined, save_quarterly_chart, get_chart_url
 import sys
 
 load_dotenv()
@@ -636,10 +636,10 @@ def main():
 
                         # 產生季報獲利指標圖表（帶入最新季資料，避免 API 尚未更新）
                         latest_q = f"{display_year}{display_s}"
-                        chart_bytes = build_quarterly_chart(
+                        chart_bytes = build_fin_combined(
                             name, stock_id, stock_type,
-                            latest_quarter=latest_q,
-                            latest_rates=ratios,
+                            latest_q=latest_q,
+                            ratios=ratios,
                         )
                         if chart_bytes:
                             filename = save_quarterly_chart(stock_id, chart_bytes)
@@ -685,4 +685,5 @@ def main():
 if __name__ == "__main__":
     main()
 
-# python financial_checker.py --debug --stock 2330
+# 測試請用 stocks.json 內的股票（name 才會正確傳給 chart API）
+# python financial_checker.py --debug --stock 2408

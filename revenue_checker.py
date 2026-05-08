@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
-from chart import build_chart, save_chart, get_chart_url, cleanup_removed_charts
+from chart import build_revenue_combined, save_chart, get_chart_url, cleanup_removed_charts
 import sys
 DEBUG = "--debug" in sys.argv
 DEBUG_STOCKS = {}
@@ -85,6 +85,14 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
         date_el = soup.find("td", string=lambda x: x and "民國" in x)
         date_text = date_el.get_text(strip=True) if date_el else ""
 
+        # BeautifulSoup 抓備註（pandas read_html 會漏掉 th+td 混排的備註列）
+        note = ""
+        for th in soup.find_all("th", string=lambda x: x and "備註" in x):
+            td = th.find_next_sibling("td")
+            if td:
+                note = td.get_text(strip=True)
+                break
+
         # 用 pandas 解析表格
         dfs = pd.read_html(StringIO(resp.text))
         for df in dfs:
@@ -102,6 +110,8 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
                                 res[key] = float(clean)
                                 break
             if res:
+                if note:
+                    res["備註"] = note
                 return res, date_text
 
         return None, "解析表格失敗"
@@ -199,9 +209,14 @@ def main():
         prev_key  = state.get(stock_id, "")
 
         if DEBUG or state_key != prev_key:
-            yoy = data.get("增減百分比", 0)
-            mom = data.get("MoM", 0)
-            rev = data.get("本月", 0)
+            yoy      = data.get("增減百分比", 0)
+            mom      = data.get("MoM", 0)
+            rev      = data.get("本月", 0)
+            note     = data.get("備註", "")
+            year_roc = data.get("year", 0)
+            month_n  = data.get("month", 0)
+            rev_bil  = rev / 100_000
+            rev_date = f"{year_roc + 1911}/{month_n:02d}"
             print(f"     🔔 新公告！{date_text}")
             print(f"       YoY：{yoy:+.2f}%　MoM：{mom:+.2f}%")
 
@@ -209,17 +224,19 @@ def main():
                 "📊 月營收新公告\n",
                 f"【{name} {stock_id}】{date_text.replace('民國', '')}",
                 f"類型：{stock_type}",
-                f"營收　　　 {rev / 100_000:.2f} 億元",
+                f"營收　　　 {rev_bil:.2f} 億元",
                 f"月{'增' if mom >= 0 else '減'}　　　 {abs(mom):.1f}%",
                 f"年{'增' if yoy >= 0 else '減'}　　　 {abs(yoy):.1f}%",
             ])
             if DEBUG:
                 send_line_message(msg, mode="push")
 
-            rev_date    = f"{data.get('year', 0) + 1911}/{data.get('month', 0):02d}"
-            chart_bytes = build_chart(name, stock_id,
-                                      latest_rev={"date": rev_date, "value": rev},
-                                      stock_type=stock_type)
+            chart_bytes = build_revenue_combined(
+                name, stock_id, stock_type,
+                year_roc=year_roc, month=month_n,
+                rev_bil=rev_bil, mom_rate=mom, yoy_rate=yoy,
+                note=note, rev=rev, rev_date=rev_date,
+            )
             if chart_bytes:
                 filename = save_chart(stock_id, chart_bytes)
                 if filename:
