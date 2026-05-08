@@ -36,6 +36,7 @@ def load_stocks() -> dict:
 
 STOCKS     = load_stocks()
 STATE_FILE = "last_fin_state.json"
+SLEEP_SEC  = 6   # 每次 MOPS 請求之間的間隔秒數
 URL_FIN    = "https://mopsov.twse.com.tw/mops/web/ajax_t05st01"
 HEADERS    = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -325,7 +326,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
                 "month":      "all",
             }
 
-            time.sleep(5)
+            time.sleep(SLEEP_SEC)
             html  = fetch_report_detail(detail_payload)
             soup2 = BeautifulSoup(html, "html.parser")
             pre   = soup2.find("pre", style=lambda s: s and "text-align" in s)
@@ -517,11 +518,11 @@ def main():
         exp_order = _period_order(f"{stock_id}_{expected_fin_suffix}")
         if not DEBUG and any(_period_order(k) >= exp_order for k in notified):
             print(f"     ⏭️  財報已有最新（{expected_fin_suffix}），跳過")
-            time.sleep(5)
+            time.sleep(SLEEP_SEC)
             if check_attention_stock(stock_id, name, state, stock_type):
                 has_new = True
             print()
-            time.sleep(5)
+            time.sleep(SLEEP_SEC)
             continue
 
         # ── 財報監控 ──────────────────────────────────────
@@ -536,11 +537,11 @@ def main():
                 fetch_error = True
                 break
             all_reports.extend(result)
-            time.sleep(5)
+            time.sleep(SLEEP_SEC)
 
         if fetch_error:
-            print(f"     ⚠️  連線失敗，等待 5 秒後重試...")
-            time.sleep(5)
+            print(f"     ⚠️  連線失敗，等待 45 秒後重試...")
+            time.sleep(45)
             all_reports = []
             retry_error = False
             for year in [ROC_YEAR, ROC_YEAR - 1]:
@@ -549,11 +550,11 @@ def main():
                     retry_error = True
                     break
                 all_reports.extend(result)
-                time.sleep(5)
+                time.sleep(SLEEP_SEC)
             if retry_error:
                 print(f"     ❌ 重試仍失敗，本次略過")
                 print()
-                time.sleep(5)
+                time.sleep(SLEEP_SEC)
                 continue
 
         if not all_reports:
@@ -577,7 +578,7 @@ def main():
             else:
                 print(f"     🔔 新財報：{display_year}年 {display_s}（單季）")
 
-                time.sleep(5)
+                time.sleep(SLEEP_SEC)
                 html     = fetch_report_detail(report["payload"])
                 curr_raw = parse_raw_financials(html) if html else {}
 
@@ -602,7 +603,7 @@ def main():
                         if not prev_report:
                             print(f"       ⚠️  找不到 {prev_season}，無法計算單季，本次略過")
                         else:
-                            time.sleep(5)
+                            time.sleep(SLEEP_SEC)
                             prev_html = fetch_report_detail(prev_report["payload"])
                             prev_raw  = parse_raw_financials(prev_html) if prev_html else {}
 
@@ -660,12 +661,12 @@ def main():
                         has_new = True
 
         # ── 注意股公告監控 ────────────────────────────────
-        time.sleep(5)
+        time.sleep(SLEEP_SEC)
         if check_attention_stock(stock_id, name, state, stock_type):
             has_new = True
 
         print()
-        time.sleep(5)
+        time.sleep(SLEEP_SEC)
 
     if has_new and not DEBUG:
         save_state(state)

@@ -46,6 +46,7 @@ HEADERS = {
     "Content-Type": "application/x-www-form-urlencoded",
 }
 STATE_FILE = "last_state.json"
+SLEEP_SEC  = 6   # 每次 MOPS 請求之間的間隔秒數
 
 
 def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
@@ -67,7 +68,7 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
 
         # --- 新增：處理投控公司中間頁面 ---
         if "t05st10_ifrs_form" in resp.text and "詳細資料" in resp.text:
-            time.sleep(3)
+            time.sleep(SLEEP_SEC)
             # 這是投控公司頁面，我們需要發送第二次 Request (Step 2)
             # 抓取第一個按鈕對應的 co_id (通常就是母公司)
             payload["step"] = "2"
@@ -135,18 +136,26 @@ def fetch_with_mom(stock_id: str) -> tuple:
     prev_y = curr_y - 1 if curr_m == 1 else curr_y
     prev_m = 12       if curr_m == 1 else curr_m - 1
 
-    # 3. 抓上月（短暫延遲）
-    time.sleep(5)
-    prev_data, _ = fetch_revenue(stock_id, is_new=False, year=str(prev_y), month=f"{prev_m:02d}")
+    # 3. 抓上月（間隔 SLEEP_SEC，失敗時多等 3 倍後重試一次）
+    time.sleep(SLEEP_SEC)
+    prev_data, prev_reason = fetch_revenue(stock_id, is_new=False, year=str(prev_y), month=f"{prev_m:02d}")
+    if not isinstance(prev_data, dict):
+        print(f"     ⚠️  上月資料取得失敗：回傳 = ({prev_data!r}, {prev_reason!r})，45s 後重試")
+        time.sleep(45)
+        prev_data, prev_reason = fetch_revenue(stock_id, is_new=False, year=str(prev_y), month=f"{prev_m:02d}")
+        if not isinstance(prev_data, dict):
+            print(f"     ⚠️  上月資料重試仍失敗：回傳 = ({prev_data!r}, {prev_reason!r})，MoM 無法計算")
 
     # 4. 計算 MoM
     this_val = data.get("本月", 0)
     mom = 0.0
-    if isinstance(prev_data, dict) and prev_data.get("本月", 0) > 0:
+    mom_ok = isinstance(prev_data, dict)
+    if mom_ok and prev_data.get("本月", 0) > 0:
         mom = (this_val - prev_data["本月"]) / prev_data["本月"] * 100
-    data["MoM"] = round(mom, 2)
-    data["year"] = curr_y
-    data["month"] = curr_m
+    data["MoM"]    = round(mom, 2)
+    data["mom_ok"] = mom_ok
+    data["year"]   = curr_y
+    data["month"]  = curr_m
 
     return data, date_text
 
@@ -254,12 +263,15 @@ def main():
                 send_line_message(msg, mode="broadcast")
 
             new_alerts.append(stock_id)
-            state[stock_id] = state_key
+            if data.get("mom_ok", True):
+                state[stock_id] = state_key
+            else:
+                print(f"     ⚠️  上月資料未取得，state 不寫入（下次重跑）")
         else:
             print(f"     ✅ 無新資料（最新：{state_key}）")
 
         print()
-        time.sleep(5)  # 每檔間隔，避免被封
+        time.sleep(SLEEP_SEC)  # 每檔間隔，避免被封
 
     if new_alerts and not DEBUG:
         save_state(state)
