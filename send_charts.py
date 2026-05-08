@@ -27,7 +27,7 @@ def main():
         url      = item.get("url", "")
         message  = item.get("message", "")
         if message:
-            send_line_message(message, mode="broadcast")
+            print(message)
             time.sleep(0.5)
         if url:
             send_line_image(url, mode="broadcast")

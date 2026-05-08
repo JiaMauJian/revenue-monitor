@@ -85,6 +85,8 @@ def fetch_report_list(stock_id: str, year: int) -> list:
 
         if "查詢過於頻繁" in resp.text or resp.status_code == 403:
             return "BLOCKED"
+        if resp.status_code >= 500:
+            return "ERROR"
         if "查詢無資料" in resp.text:
             return []
 
@@ -160,6 +162,12 @@ def fetch_report_detail(report_payload: dict) -> str:
     try:
         resp = requests.post(URL_FIN, headers=HEADERS, data=report_payload, verify=False, timeout=20)
         resp.encoding = "utf-8"
+        if "查詢過於頻繁" in resp.text or resp.status_code == 403:
+            print(f"     🛑 fetch_report_detail：IP 遭封鎖")
+            return ""
+        if resp.status_code >= 500:
+            print(f"     ❌ fetch_report_detail：伺服器錯誤 HTTP {resp.status_code}")
+            return ""
         return resp.text
     except Exception as e:
         print(f"     ❌ fetch_report_detail 錯誤：{e}")
@@ -532,7 +540,7 @@ def main():
             result = fetch_report_list(stock_id, year)
             if result == "BLOCKED":
                 print(f"     🛑 IP 被封鎖，停止執行\n")
-                return
+                sys.exit(1)
             if result == "ERROR":
                 fetch_error = True
                 break
@@ -546,7 +554,10 @@ def main():
             retry_error = False
             for year in [ROC_YEAR, ROC_YEAR - 1]:
                 result = fetch_report_list(stock_id, year)
-                if result in ("BLOCKED", "ERROR"):
+                if result == "BLOCKED":
+                    print(f"     🛑 IP 被封鎖，停止執行\n")
+                    sys.exit(1)
+                if result == "ERROR":
                     retry_error = True
                     break
                 all_reports.extend(result)
@@ -618,6 +629,20 @@ def main():
                                     "net":       curr_raw["net"]       - prev_raw["net"],
                                     "eps":       curr_raw.get("eps", 0) - prev_raw.get("eps", 0),
                                 }
+                                if all(single_raw[k] == 0 for k in ["revenue", "gross", "operating", "net", "eps"]):
+                                    print(f"       🔍 單季 EPS = 0，重新抓前期資料確認...")
+                                    time.sleep(SLEEP_SEC)
+                                    prev_html2 = fetch_report_detail(prev_report["payload"])
+                                    prev_raw2  = parse_raw_financials(prev_html2) if prev_html2 else {}
+                                    if prev_raw2 and prev_raw2.get("revenue", 0) > 0:
+                                        single_raw = {
+                                            "revenue":   curr_raw["revenue"]   - prev_raw2["revenue"],
+                                            "gross":     curr_raw["gross"]     - prev_raw2["gross"],
+                                            "operating": curr_raw["operating"] - prev_raw2["operating"],
+                                            "net":       curr_raw["net"]       - prev_raw2["net"],
+                                            "eps":       curr_raw.get("eps", 0) - prev_raw2.get("eps", 0),
+                                        }
+                                        print(f"       ✅ 確認後單季 EPS = {single_raw['eps']:.2f}")
 
                     if single_raw:
                         ratios = calc_ratios(
@@ -632,8 +657,7 @@ def main():
                         rev_b = single_raw["revenue"] / 100000
                         print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
                         msg = format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price)
-                        if DEBUG:
-                            send_line_message(msg, mode="push")
+                        print(msg)
 
                         # 產生季報獲利指標圖表（帶入最新季資料，避免 API 尚未更新）
                         latest_q = f"{display_year}{display_s}"
@@ -651,10 +675,6 @@ def main():
                                     url = get_chart_url(filename)
                                     if url:
                                         pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
-                                    else:
-                                        send_line_message(msg, mode="broadcast")
-                        elif not DEBUG:
-                            send_line_message(msg, mode="broadcast")
 
                         notified.append(key)
                         state[stock_id] = notified

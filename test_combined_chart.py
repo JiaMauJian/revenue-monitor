@@ -244,7 +244,7 @@ print(f"done: {out_path}")
 # ── 財報組合圖 ────────────────────────────────────────────────
 from financial_checker import (
     fetch_report_list, fetch_report_detail, parse_raw_financials,
-    calc_ratios, find_report, PREV_SEASON, DISPLAY_SEASON, ROC_YEAR,
+    calc_ratios, find_report, fetch_price, PREV_SEASON, DISPLAY_SEASON, ROC_YEAR,
 )
 
 print("\n抓取季報資料...")
@@ -300,6 +300,14 @@ try:
     latest_q = f"{_disp_yr}{_disp_s}"   # e.g. "115Q1"
     print(f"  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
 
+    _eps       = _single.get("eps", 0)
+    _price     = fetch_price(STOCK_ID, STOCK_NAME) if _eps and _eps > 0 else None
+    _ann_eps   = round(_eps * 4, 2) if _eps and _eps > 0 else 0
+    _per       = round(_price / _ann_eps, 1) if _price and _ann_eps > 0 else None
+    _show_eps  = bool(_eps and _eps > 0)
+    if _show_eps:
+        print(f"  EPS：{_eps:.2f} 元  股價：{_price}  年化本益比：{_per}")
+
     def _q_title(label):
         m = re.match(r"(\d+)Q(\d)", label)
         return f"民國{m.group(1)}年Q{m.group(2)} 季報" if m else label
@@ -340,34 +348,51 @@ try:
     _fs_h      = 3.5 / sum(fin_hr) * 7.0
     _flb       = max(0.0, (1.0 - _fs_h * (_fw / _fh) / 8.0) / 2.0)
     _frng      = 1.0 - 2 * _flb
-    _fcx       = [_flb + _frng / 6, 0.50, 1.0 - _flb - _frng / 6]
-    _fsx       = [_flb + _frng / 3, 1.0 - _flb - _frng / 3]
 
-    # Row 1：3 欄統計
+    # 5 欄：毛利率 / 營業利益率 / 稅後純益率 / EPS / 年化本益比
+    _n_cols = 5
+    _fcx    = [_flb + _frng * (i + 0.5) / _n_cols for i in range(_n_cols)]
+    _fsx    = [_flb + _frng * i / _n_cols for i in range(1, _n_cols)]
+
+    f_hdrs = ["毛利率(%)", "營業利益率(%)", "稅後純益率(%)", "EPS(元)", "年化本益比"]
+    _per_str = f"{_per}" if _per is not None else "N/A"
+    _eps_str = f"{_eps:.2f}" if _show_eps else "N/A"
+    f_vals = [
+        _fmtr(ratios.get("gross")),
+        _fmtr(ratios.get("operating")),
+        _fmtr(ratios.get("net")),
+        _eps_str,
+        _per_str,
+    ]
+    f_cols = [
+        _frc(ratios.get("gross")),
+        _frc(ratios.get("operating")),
+        _frc(ratios.get("net")),
+        "black",
+        "black",
+    ]
+
+    # Row 1：5 欄統計
     ax_fs = fin_fig.add_subplot(fin_gs[1])
     ax_fs.set_facecolor("white")
     ax_fs.axis("off")
     ax_fs.set_xlim(0, 1)
     ax_fs.set_ylim(0, 1)
 
-    f_hdrs = ["毛利率(%)", "營業利益率(%)", "稅後純益率(%)"]
-    f_vals = [_fmtr(ratios.get("gross")), _fmtr(ratios.get("operating")), _fmtr(ratios.get("net"))]
-    f_cols = [_frc(ratios.get("gross")),  _frc(ratios.get("operating")),  _frc(ratios.get("net"))]
-
     for x, h in zip(_fcx, f_hdrs):
         ax_fs.text(x, 0.78, h, ha="center", va="top",
-                   fontsize=12, color="#555555", transform=ax_fs.transAxes)
+                   fontsize=10, color="#555555", transform=ax_fs.transAxes)
     for x, v, c in zip(_fcx, f_vals, f_cols):
         ax_fs.text(x, 0.50, v, ha="center", va="top",
-                   fontsize=20, fontweight="bold", color=c,
+                   fontsize=18, fontweight="bold", color=c,
                    transform=ax_fs.transAxes)
 
     for sx in _fsx:
         ax_fs.axvline(x=sx, ymin=0.05, ymax=0.95, color="#CCCCCC", linewidth=0.8)
     ax_fs.axhline(y=0, color="#CCCCCC", linewidth=0.8)
 
-    # Row 2：圖表
-    ax_fc = fin_fig.add_subplot(fin_gs[2])
+    # 最後一列：圖表
+    ax_fc = fin_fig.add_subplot(fin_gs[-1])
     ax_fc.set_facecolor("white")
     ax_fc.imshow(fin_img, aspect="equal")
     ax_fc.axis("off")

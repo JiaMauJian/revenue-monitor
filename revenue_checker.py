@@ -78,6 +78,8 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
 
         if "查詢過於頻繁" in resp.text or resp.status_code == 403:
             return "BLOCKED", "IP 遭封鎖"
+        if resp.status_code >= 500:
+            return None, f"伺服器錯誤 HTTP {resp.status_code}"
         if "查詢無資料" in resp.text:
             return None, "查無資料"
 
@@ -85,6 +87,8 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
         soup = BeautifulSoup(resp.text, "html.parser")
         date_el = soup.find("td", string=lambda x: x and "民國" in x)
         date_text = date_el.get_text(strip=True) if date_el else ""
+        if not date_text:
+            return None, "無法取得公告日期（頁面結構異常）"
 
         # BeautifulSoup 抓備註（pandas read_html 會漏掉 th+td 混排的備註列）
         note = ""
@@ -111,6 +115,8 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
                                 res[key] = float(clean)
                                 break
             if res:
+                if res.get("本月", 0) == 0:
+                    print(f"     ⚠️  本月營收解析為 0，資料可能異常")
                 if note:
                     res["備註"] = note
                 return res, date_text
@@ -152,6 +158,16 @@ def fetch_with_mom(stock_id: str) -> tuple:
     mom_ok = isinstance(prev_data, dict)
     if mom_ok and prev_data.get("本月", 0) > 0:
         mom = (this_val - prev_data["本月"]) / prev_data["本月"] * 100
+
+    # 5. MoM = 0 時重新抓上月資料確認
+    if mom == 0.0 and mom_ok:
+        print(f"     🔍 MoM = 0，重新抓上月資料確認...")
+        time.sleep(SLEEP_SEC)
+        prev_data2, _ = fetch_revenue(stock_id, is_new=False, year=str(prev_y), month=f"{prev_m:02d}")
+        if isinstance(prev_data2, dict) and prev_data2.get("本月", 0) > 0:
+            mom = (this_val - prev_data2["本月"]) / prev_data2["本月"] * 100
+            print(f"     ✅ 確認後 MoM = {mom:+.2f}%")
+
     data["MoM"]    = round(mom, 2)
     data["mom_ok"] = mom_ok
     data["year"]   = curr_y
@@ -208,7 +224,7 @@ def main():
 
         if data == "BLOCKED":
             print(f"     🛑 IP 被封鎖，停止執行\n")
-            return
+            sys.exit(1)
 
         if data is None:
             print(f"     ⚠️  {date_text}\n")
@@ -237,8 +253,7 @@ def main():
                 f"月{'增' if mom >= 0 else '減'}　　　 {abs(mom):.1f}%",
                 f"年{'增' if yoy >= 0 else '減'}　　　 {abs(yoy):.1f}%",
             ])
-            if DEBUG:
-                send_line_message(msg, mode="push")
+            print(msg)
 
             chart_bytes = build_revenue_combined(
                 name, stock_id, stock_type,
@@ -255,12 +270,6 @@ def main():
                         url = get_chart_url(filename)
                         if url:
                             pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
-                        else:
-                            send_line_message(msg, mode="broadcast")
-                elif not DEBUG:
-                    send_line_message(msg, mode="broadcast")
-            elif not DEBUG:
-                send_line_message(msg, mode="broadcast")
 
             new_alerts.append(stock_id)
             if data.get("mom_ok", True):

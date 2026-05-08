@@ -303,7 +303,7 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
 
         ax.axhline(0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
         ax.set_xticks(x)
-        ax.set_xticklabels(x_labels, rotation=0, ha="center", fontsize=7)
+        ax.set_xticklabels(x_labels, rotation=0, ha="center", fontsize=10)
         ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
         ax.yaxis.tick_right()
         ax.yaxis.set_label_position("right")
