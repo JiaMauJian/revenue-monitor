@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
-from chart import build_fin_combined, save_quarterly_chart, get_chart_url
+from chart import build_fin_combined, save_quarterly_chart, get_chart_url, fetch_ttm_eps
 import sys
 
 load_dotenv()
@@ -429,7 +429,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
         if price:
             annual_eps = round(eps * 12, 2)
             per        = round(price / annual_eps, 1)
-            lines.append(f"年化本益比 {price} / {annual_eps} = {per}")
+            lines.append(f"年化本益比 {per}")
 
     return "⚠️ 注意股公告\n\n" + "\n".join(lines)
 
@@ -456,7 +456,8 @@ def save_state(state: dict):
 
 
 def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios: dict,
-               stock_type: str = "", eps: float = 0, price: float | None = None) -> str:
+               stock_type: str = "", eps: float = 0, price: float | None = None,
+               ttm_eps: float | None = None) -> str:
     rev_bil = ratios.get("revenue", 0) / 100000
     lines = [
         f"📋 財務報表新公告\n",
@@ -470,9 +471,13 @@ def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios:
     if eps and eps > 0:
         lines.append(f"ＥＰＳ　　 {eps:.2f} 元")
         if price:
-            annual_eps = round(eps * 4, 2)
-            per        = round(price / annual_eps, 1)
-            lines.append(f"年化本益比 {price} / {annual_eps} = {per}")
+            if ttm_eps and ttm_eps > 0:
+                per = round(price / ttm_eps, 1)
+                lines.append(f"近四季本益比 {per}")
+            else:
+                annual_eps = round(eps * 4, 2)
+                per        = round(price / annual_eps, 1)
+                lines.append(f"年化本益比 {per}")
     return "\n".join(lines)
 
 
@@ -652,19 +657,32 @@ def main():
                             single_raw["net"],
                         )
 
-                        eps   = single_raw.get("eps", 0)
-                        price = fetch_price(stock_id, name)
-                        rev_b = single_raw["revenue"] / 100000
+                        eps      = single_raw.get("eps", 0)
+                        price    = fetch_price(stock_id, name)
+                        rev_b    = single_raw["revenue"] / 100000
+                        latest_q = f"{display_year}{display_s}"
                         print(f"       營收：{rev_b:,.0f}億  毛利率：{ratios.get('gross',0):.1f}%  營業利益率：{ratios.get('operating',0):.1f}%  淨利率：{ratios.get('net',0):.1f}%")
-                        msg = format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price)
+
+                        # 穩定型：用近四季 TTM EPS 算本益比
+                        ttm_eps = None
+                        if stock_type == "穩定型" and eps and eps > 0:
+                            ttm_eps = fetch_ttm_eps(name, stock_id, latest_q, eps)
+                            if ttm_eps:
+                                print(f"       近四季EPS：{ttm_eps:.2f}")
+                            else:
+                                print(f"       ⚠️  無法取得近四季EPS，改用年化")
+
+                        msg = format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price, ttm_eps)
                         print(msg)
 
                         # 產生季報獲利指標圖表（帶入最新季資料，避免 API 尚未更新）
-                        latest_q = f"{display_year}{display_s}"
                         chart_bytes = build_fin_combined(
                             name, stock_id, stock_type,
                             latest_q=latest_q,
                             ratios=ratios,
+                            eps=eps,
+                            ttm_eps=ttm_eps,
+                            price=price,
                         )
                         if chart_bytes:
                             filename = save_quarterly_chart(stock_id, chart_bytes)

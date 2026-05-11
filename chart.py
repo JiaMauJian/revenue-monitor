@@ -54,6 +54,31 @@ API_BASE = "https://huodalife.azurewebsites.net/Chart1.aspx"
 HEADERS  = {"Content-Type": "application/json"}
 
 
+def fetch_ttm_eps(stock_name: str, stock_num: str,
+                  latest_q: str = "", latest_eps: float = 0) -> float | None:
+    """用 QuarterlyRpt API 取近四季 EPS 加總（TTM）。
+    latest_q / latest_eps：若 API 尚未收錄最新季則補入。
+    兩者皆不傳時直接取 API 最後 4 季。"""
+    try:
+        data     = _call("QuarterlyRpt", stock_name, stock_num)
+        quarters = list(data[2])
+        eps_list = [float(v) if v is not None else None for v in data[11]]
+
+        if latest_q and latest_q not in quarters and latest_eps:
+            # API 尚未收錄最新季，用前三季 + 本季
+            eps_4 = eps_list[-3:] + [latest_eps]
+        else:
+            eps_4 = eps_list[-4:]
+
+        valid = [v for v in eps_4 if v is not None]
+        if len(valid) < 4:
+            return None
+        return round(sum(valid), 2)
+    except Exception as e:
+        print(f"     ⚠️  fetch_ttm_eps 失敗：{e}")
+        return None
+
+
 def _call(endpoint: str, stock_name: str, stock_num: str) -> dict:
     resp = requests.post(
         f"{API_BASE}/{endpoint}",
@@ -419,8 +444,10 @@ def build_revenue_combined(stock_name: str, stock_num: str, stock_type: str,
 
 
 def build_fin_combined(stock_name: str, stock_num: str, stock_type: str,
-                        latest_q: str, ratios: dict) -> bytes | None:
-    """季報組合圖：標題 + 統計欄 + 季報圖。"""
+                        latest_q: str, ratios: dict,
+                        eps: float = 0, ttm_eps: float | None = None,
+                        price: float | None = None) -> bytes | None:
+    """季報組合圖：標題 + 統計欄（5格）+ 季報圖。"""
     try:
         import matplotlib.image as mpimg
 
@@ -442,6 +469,19 @@ def build_fin_combined(stock_name: str, stock_num: str, stock_type: str,
             if v is None: return "#888888"
             return "#009933" if v < 0 else "#CC0000"
 
+        # 計算本益比
+        if price and ttm_eps and ttm_eps > 0:
+            _per_str   = f"{round(price / ttm_eps, 1)}"
+            _per_label = "近四季PE"
+        elif price and eps and eps > 0:
+            _per_str   = f"{round(price / (eps * 4), 1)}"
+            _per_label = "年化PE"
+        else:
+            _per_str   = "N/A"
+            _per_label = "年化PE"
+
+        _eps_str = f"{eps:.2f}" if eps and eps > 0 else "N/A"
+
         fin_hr  = [0.45, 0.95, 3.5]
         fin_fig = plt.figure(figsize=(8, 7))
         fin_fig.patch.set_facecolor("white")
@@ -460,8 +500,9 @@ def build_fin_combined(stock_name: str, stock_num: str, stock_type: str,
         _fs_h    = 3.5 / sum(fin_hr) * 7.0
         _flb     = max(0.0, (1.0 - _fs_h * (_fw / _fh) / 8.0) / 2.0)
         _frng    = 1.0 - 2 * _flb
-        _fcx     = [_flb + _frng / 6, 0.50, 1.0 - _flb - _frng / 6]
-        _fsx     = [_flb + _frng / 3, 1.0 - _flb - _frng / 3]
+        _n_cols  = 5
+        _fcx     = [_flb + _frng * (i + 0.5) / _n_cols for i in range(_n_cols)]
+        _fsx     = [_flb + _frng * i / _n_cols for i in range(1, _n_cols)]
 
         ax_fs = fin_fig.add_subplot(fin_gs[1])
         ax_fs.set_facecolor("white")
@@ -469,16 +510,16 @@ def build_fin_combined(stock_name: str, stock_num: str, stock_type: str,
         ax_fs.set_xlim(0, 1)
         ax_fs.set_ylim(0, 1)
 
-        f_hdrs = ["毛利率(%)", "營業利益率(%)", "稅後純益率(%)"]
-        f_vals = [_fmtr(ratios.get("gross")), _fmtr(ratios.get("operating")), _fmtr(ratios.get("net"))]
-        f_cols = [_frc(ratios.get("gross")),  _frc(ratios.get("operating")),  _frc(ratios.get("net"))]
+        f_hdrs = ["毛利率(%)", "營業利益率(%)", "稅後純益率(%)", "EPS(元)", _per_label]
+        f_vals = [_fmtr(ratios.get("gross")), _fmtr(ratios.get("operating")), _fmtr(ratios.get("net")), _eps_str, _per_str]
+        f_cols = [_frc(ratios.get("gross")),  _frc(ratios.get("operating")),  _frc(ratios.get("net")), "black", "black"]
 
         for x, h in zip(_fcx, f_hdrs):
             ax_fs.text(x, 0.78, h, ha="center", va="top",
-                       fontsize=12, color="#555555", transform=ax_fs.transAxes)
+                       fontsize=10, color="#555555", transform=ax_fs.transAxes)
         for x, v, c in zip(_fcx, f_vals, f_cols):
             ax_fs.text(x, 0.50, v, ha="center", va="top",
-                       fontsize=20, fontweight="bold", color=c,
+                       fontsize=18, fontweight="bold", color=c,
                        transform=ax_fs.transAxes)
 
         for sx in _fsx:
