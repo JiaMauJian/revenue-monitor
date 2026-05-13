@@ -361,7 +361,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
 
     year_roc = int(spoke_date[:4]) - 1911
     date_fmt = f"{year_roc}年{spoke_date[4:6]}月{spoke_date[6:8]}日"
-    header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n類型：{stock_type}\n"
+    header   = f"⚠️ 注意股公告\n\n【{name} {stock_id}】{date_fmt}\n類型　　　 {stock_type}\n"
 
     # 去掉 4. 之後
     cut = re.search(r"^(.*?)\n4\.", content, re.DOTALL)
@@ -416,7 +416,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
 
     rev_bil = rev / 100         # 百萬元 → 億元
 
-    lines = [f"【{name} {stock_id}】{date_fmt}（{period_fmt}自結）", f"類型：{stock_type}"]
+    lines = [f"【{name} {stock_id}】{date_fmt}（{period_fmt}自結）", f"類型　　　 {stock_type}"]
     lines.append(f"營收　　　 {rev_bil:,.1f} 億元")
     if pre is not None:
         lines.append(f"稅前利益率 {pre/rev*100:.1f}%")
@@ -462,7 +462,7 @@ def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios:
     lines = [
         f"📋 財務報表新公告\n",
         f"【{name} {stock_id}】{year}年 {display_season}（單季）",
-        f"類型：{stock_type}",
+        f"類型　　　 {stock_type}",
         f"營收　　　 {rev_bil:,.0f} 億元",
         f"毛利率　　 {ratios.get('gross', 0):.1f}%",
         f"營業利益率 {ratios.get('operating', 0):.1f}%",

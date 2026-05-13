@@ -248,7 +248,7 @@ def main():
             msg = "\n".join([
                 "📊 月營收新公告\n",
                 f"【{name} {stock_id}】{date_text.replace('民國', '')}",
-                f"類型：{stock_type}",
+                f"類型　　　 {stock_type}",
                 f"營收　　　 {rev_bil:.2f} 億元",
                 f"月{'增' if mom >= 0 else '減'}　　　 {abs(mom):.1f}%",
                 f"年{'增' if yoy >= 0 else '減'}　　　 {abs(yoy):.1f}%",
