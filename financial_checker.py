@@ -258,7 +258,11 @@ def fetch_price(stock_id: str, stock_name: str) -> float | None:
         raw = resp.json().get("d", {})
         if isinstance(raw, str):
             raw = json.loads(raw)
-        price = raw[1][-1]
+        prices = raw[1]
+        if len(prices) < 49:
+            print(f"     ⚠️  股價資料尚未更新（{len(prices)}/49），略過")
+            return None
+        price = prices[-1]
         if price not in (None, ""):
             return float(price)
     except Exception as e:
@@ -429,6 +433,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
         if price:
             annual_eps = round(eps * 12, 2)
             per        = round(price / annual_eps, 1)
+            print(f"     [DEBUG] 股價={price}  EPS={eps}  年化EPS(×12)={annual_eps}  本益比={per}")
             lines.append(f"年化本益比 {per}")
 
     return "⚠️ 注意股公告\n\n" + "\n".join(lines)
