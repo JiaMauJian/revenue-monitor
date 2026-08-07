@@ -107,7 +107,11 @@ def fetch_revenue(stock_id: str, is_new=True, year="", month="") -> tuple:
             res = {}
             for _, row in df.iterrows():
                 row_list = row.tolist()
+                # 表格「增減百分比」會出現兩次：單月年增率、本年累計年增率
+                # 只取第一次出現（單月）的值，避免被累計年增率覆蓋
                 for key in ["本月", "去年同期", "增減百分比"]:
+                    if key in res:
+                        continue
                     if key in str(row_list[0]):
                         for val in row_list[1:]:
                             clean = str(val).replace(",", "").replace("%", "").strip()
