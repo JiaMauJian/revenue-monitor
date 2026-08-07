@@ -115,12 +115,19 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
             print(f"     ❌ 圖表生成失敗：GetPrice API 格式異常 → {price_data}")
             return None
 
-        rev_dates = list(rev_data[2][-months:])
-        rev_vals  = [float(v) / 100_000 if v is not None else 0.0 for v in rev_data[3][-months:]]
+        NO_DATA_SENTINEL = 999999.999  # API 用此值表示「無資料」
 
         def _safe(v):
-            f = float(v) if v is not None else None
-            return None if f is None or f >= 999999 else f
+            f = float(v) if v not in (None, "") else None
+            return None if f is None or f == NO_DATA_SENTINEL else f
+
+        def _rev(v):
+            """營收值：無資料（None 或哨兵值）以 0 表示，用於長條圖／表格。"""
+            f = _safe(v)
+            return 0.0 if f is None else f / 100_000
+
+        rev_dates = list(rev_data[2][-months:])
+        rev_vals  = [_rev(v) for v in rev_data[3][-months:]]
 
         # 用 date 做 key，避免長度不一致造成 index 錯位
         # rev_data[6]=YoY%, rev_data[7]=累積YoY%
@@ -141,19 +148,16 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         p_prices      = price_data[1]         # N+1 個價格
         p_latest_date = price_data[2][0] if len(price_data) > 2 and price_data[2] else None  # "2026/04/08"
 
-        # 對齊月均價到營收日期
+        # 對齊月均價到營收日期（無資料月份 API 會回傳 999999.999 哨兵值，需濾除）
         price_map = dict(zip(p_month_dates, p_prices[:len(p_month_dates)]))
-        aligned_prices = [
-            (float(price_map[d]) if price_map.get(d) not in (None, "") else None)
-            for d in rev_dates
-        ]
+        aligned_prices = [_safe(price_map.get(d)) for d in rev_dates]
 
         # 加上最新股價那一點（"2026/04/08"）
         all_dates = list(rev_dates)
         all_bars  = list(rev_vals)
         all_prices = list(aligned_prices)
         if p_latest_date and len(p_prices) > len(p_month_dates):
-            latest_price = float(p_prices[-1]) if p_prices[-1] not in (None, "") else None
+            latest_price = _safe(p_prices[-1])
             all_dates.append(p_latest_date)
             all_bars.append(0.0)          # 最新日期沒有營收資料
             all_prices.append(latest_price)
@@ -209,14 +213,13 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
         n_show  = min(3, len(_raw_dates))
         start_i = len(_raw_dates) - n_show
         t_dates = list(reversed(_raw_dates[start_i:]))
-        t_revs  = list(reversed([float(v) / 100_000 if v is not None else 0.0
-                                  for v in _raw_vals[start_i:]]))
+        t_revs  = list(reversed([_rev(v) for v in _raw_vals[start_i:]]))
         t_yoy   = [_yoy_map.get(d) for d in t_dates]
         t_cumy  = [_cumy_map.get(d) for d in t_dates]
         t_mom_fwd = []
         for i in range(start_i, start_i + n_show):
-            prev_v = float(_raw_vals[i - 1]) if i > 0 and _raw_vals[i - 1] is not None else None
-            curr_v = float(_raw_vals[i])     if _raw_vals[i] is not None else 0.0
+            prev_v = _safe(_raw_vals[i - 1]) if i > 0 else None
+            curr_v = _safe(_raw_vals[i]) or 0.0
             if prev_v and prev_v > 0:
                 t_mom_fwd.append((curr_v - prev_v) / prev_v * 100)
             else:
