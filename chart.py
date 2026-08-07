@@ -198,7 +198,7 @@ def build_chart(stock_name: str, stock_num: str, months: int = 48,
             ax1.set_xticks(x)
             ax1.set_xticklabels(all_dates, rotation=45, ha="right", fontsize=12, color="black")
 
-        title = f"{stock_name}({stock_num})  {stock_type}  營收與月均價" if stock_type else f"{stock_name}({stock_num})營收與月均價"
+        title = "營收與月均價"
         ax1.set_title(title, fontsize=16, pad=10, color="black", fontweight="bold")
         ax1.set_xlim(-0.5, len(all_dates) - 0.5)
         ax2.set_xlim(-0.5, len(all_dates) - 0.5)
@@ -332,7 +332,7 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
         ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"{v:.0f}%"))
         ax.yaxis.tick_right()
         ax.yaxis.set_label_position("right")
-        title = f"{stock_name}({stock_num})  {stock_type}  獲利指標(季)" if stock_type else f"{stock_name}({stock_num})獲利指標(季)"
+        title = "獲利指標(季)"
         ax.set_title(title, fontsize=13, fontweight="bold", pad=10)
         ax.legend(loc="upper left", fontsize=9)
         ax.grid(axis="y", linestyle="--", linewidth=0.4, alpha=0.3)
@@ -381,7 +381,8 @@ def build_revenue_combined(stock_name: str, stock_num: str, stock_type: str,
         ax_title = fig.add_subplot(gs[0])
         ax_title.set_facecolor("white")
         ax_title.axis("off")
-        ax_title.text(0.5, 0.5, f"民國{year_roc}年{month}月營收",
+        _prefix = f"{stock_name}({stock_num}) {stock_type} " if stock_type else f"{stock_name}({stock_num}) "
+        ax_title.text(0.5, 0.5, f"{_prefix}民國{year_roc}年{month}月營收",
                       transform=ax_title.transAxes,
                       ha="center", va="center",
                       fontsize=16, fontweight="bold", color="black")
@@ -459,8 +460,9 @@ def build_fin_combined(stock_name: str, stock_num: str, stock_type: str,
         fin_img = mpimg.imread(io.BytesIO(fin_bytes))
 
         def _q_title(label):
+            _prefix = f"{stock_name}({stock_num}) {stock_type} " if stock_type else f"{stock_name}({stock_num}) "
             m = re.match(r"(\d+)Q(\d)", label)
-            return f"民國{m.group(1)}年Q{m.group(2)} 季報" if m else label
+            return f"{_prefix}民國{m.group(1)}年Q{m.group(2)} 季報" if m else f"{_prefix}{label}"
 
         def _fmtr(v):
             return f"{v:.1f}" if v is not None else "N/A"
