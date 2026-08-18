@@ -288,6 +288,10 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
 
         soup = BeautifulSoup(resp.text, "html.parser")
 
+        state_key      = f"{stock_id}_attention"
+        is_first_check = state_key not in state
+        today_str      = datetime.now().strftime("%Y%m%d")
+
         for tr in reversed(soup.find_all("tr")):
             tds = tr.find_all("td")
             if len(tds) < 5:
@@ -319,10 +323,17 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
                 continue
 
             key      = f"{stock_id}_attention_{spoke_date}_{seq_no}"
-            notified = state.get(f"{stock_id}_attention", [])
+            notified = state.get(state_key, [])
 
             if not DEBUG and key in notified:
                 print(f"     ✅ 注意股已通知過：{spoke_date}")
+                continue
+
+            # 新加入監控的股票：今天以前的舊公告直接標記已讀，不發送（避免補發整批歷史公告）
+            if not DEBUG and is_first_check and spoke_date < today_str:
+                notified.append(key)
+                state[state_key] = notified
+                print(f"     ⏭️  新股票，略過今天以前的舊公告：{spoke_date}")
                 continue
 
             detail_payload = {
@@ -351,7 +362,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
             send_line_message(msg, mode="push" if DEBUG else "broadcast")
 
             notified.append(key)
-            state[f"{stock_id}_attention"] = notified
+            state[state_key] = notified
             print(f"     🔔 注意股公告已發送：{spoke_date}")
             return True
 

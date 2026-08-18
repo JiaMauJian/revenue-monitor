@@ -54,6 +54,15 @@ API_BASE = "https://huodalife.azurewebsites.net/Chart1.aspx"
 HEADERS  = {"Content-Type": "application/json"}
 
 
+def _to_display_quarter(label: str) -> str:
+    """把民國年季別（如 "115Q2"）轉成 API 慣用的顯示格式（如 "2026.2Q"）。
+    若輸入已是顯示格式（不符合民國年格式），原樣傳回。"""
+    m = re.match(r"(\d+)Q(\d)", label)
+    if m:
+        return f"{int(m.group(1)) + 1911}.{m.group(2)}Q"
+    return label
+
+
 def fetch_ttm_eps(stock_name: str, stock_num: str,
                   latest_q: str = "", latest_eps: float = 0) -> float | None:
     """用 QuarterlyRpt API 取近四季 EPS 加總（TTM）。
@@ -64,7 +73,7 @@ def fetch_ttm_eps(stock_name: str, stock_num: str,
         quarters = list(data[2])
         eps_list = [float(v) if v is not None else None for v in data[11]]
 
-        if latest_q and latest_q not in quarters and latest_eps:
+        if latest_q and _to_display_quarter(latest_q) not in quarters and latest_eps:
             # API 尚未收錄最新季，用前三季 + 本季
             eps_4 = eps_list[-3:] + [latest_eps]
         else:
@@ -295,8 +304,9 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
         net_rates       = [float(v) if v is not None else None for v in data[10]]
 
         # 若最新季別不在 API 資料中，補到最後
-        if latest_quarter and latest_rates and latest_quarter not in quarters:
-            quarters.append(latest_quarter)
+        latest_label = _to_display_quarter(latest_quarter) if latest_quarter else None
+        if latest_label and latest_rates and latest_label not in quarters:
+            quarters.append(latest_label)
             gross_rates.append(latest_rates.get("gross"))
             operating_rates.append(latest_rates.get("operating"))
             net_rates.append(latest_rates.get("net"))
@@ -307,13 +317,7 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
         operating_rates = operating_rates[-8:]
         net_rates       = net_rates[-8:]
 
-        def _fmt_quarter(label: str) -> str:
-            m = re.match(r"(\d+)Q(\d)", label)
-            if m:
-                return f"{int(m.group(1)) + 1911}.{m.group(2)}Q"
-            return label
-
-        x_labels = [_fmt_quarter(q) for q in quarters]
+        x_labels = [_to_display_quarter(q) for q in quarters]
 
         fig, ax = plt.subplots(figsize=(8, 4.8))
         x = list(range(len(quarters)))
