@@ -237,6 +237,12 @@ def main():
         state_key = f"{data.get('year')}_{data.get('month')}"
         prev_key  = state.get(stock_id, "")
 
+        if not DEBUG and state_key != prev_key and not data.get("mom_ok", True):
+            # 上月資料沒抓到 → MoM 不可信，不發通知也不寫 state，下次重跑再發
+            print(f"     ⚠️  新公告 {date_text}，但上月資料未取得，暫不通知（下次重跑）\n")
+            time.sleep(SLEEP_SEC)
+            continue
+
         if DEBUG or state_key != prev_key:
             yoy      = data.get("增減百分比", 0)
             mom      = data.get("MoM", 0)
@@ -276,10 +282,7 @@ def main():
                             pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
 
             new_alerts.append(stock_id)
-            if data.get("mom_ok", True):
-                state[stock_id] = state_key
-            else:
-                print(f"     ⚠️  上月資料未取得，state 不寫入（下次重跑）")
+            state[stock_id] = state_key
         else:
             print(f"     ✅ 無新資料（最新：{state_key}）")
 
