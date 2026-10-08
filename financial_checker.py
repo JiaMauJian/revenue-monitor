@@ -196,8 +196,9 @@ def parse_raw_financials(html: str) -> dict:
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
+                "model": "claude-haiku-5-5",
                 "max_tokens": 256,
+                "thinking": {"type": "disabled"},
                 "system": (
                     "從台股財務報告中擷取累計數字。"
                     "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
@@ -213,7 +214,7 @@ def parse_raw_financials(html: str) -> dict:
         if "content" not in body:
             print(f"     ❌ Claude API 錯誤：{body.get('error', body)}")
             return {}
-        text_resp = body["content"][0]["text"]
+        text_resp = next(b["text"] for b in body["content"] if b["type"] == "text")
         text_resp = re.sub(r"```json\s*|```", "", text_resp).strip()
         return json.loads(text_resp)
 
@@ -392,8 +393,9 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
                 "content-type": "application/json",
             },
             json={
-                "model": "claude-haiku-4-5-20251001",
+                "model": "claude-haiku-5-5",
                 "max_tokens": 256,
+                "thinking": {"type": "disabled"},
                 "system": (
                     "從台股注意股公告中擷取「最近一月自結」的財務數字。"
                     "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
@@ -408,7 +410,7 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
         if "content" not in body:
             print(f"     ❌ Claude API 錯誤：{body.get('error', body)}")
             return header + content
-        text = body["content"][0]["text"]
+        text = next(b["text"] for b in body["content"] if b["type"] == "text")
         text = re.sub(r"```json\s*|```", "", text).strip()
         d = json.loads(text)
     except Exception as e:
