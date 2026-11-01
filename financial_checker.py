@@ -367,6 +367,12 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
             print(f"     🔔 注意股公告已發送：{spoke_date}")
             return True
 
+        # 第一次檢查完成就建立紀錄（即使沒有任何公告），之後不再視為新股票，
+        # 避免日後的公告因「今天以前」被當成舊公告略過
+        if not DEBUG and is_first_check:
+            state.setdefault(state_key, [])
+            return True  # 讓 main 存檔
+
     except Exception as e:
         print(f"     ❌ check_attention_stock 錯誤：{e}")
 
