@@ -205,6 +205,7 @@ def main():
 
     state         = load_state()
     new_alerts    = []
+    state_changed = False
     pending_charts = []  # [{stock_id, url}]
 
     now = datetime.now(timezone.utc)
@@ -236,6 +237,14 @@ def main():
 
         state_key = f"{data.get('year')}_{data.get('month')}"
         prev_key  = state.get(stock_id, "")
+
+        if not DEBUG and stock_id not in state:
+            # 新加入名單的股票：只記錄目前最新月份當基準，不發通知，等下個月新公告
+            print(f"     🆕 新加入名單，記錄基準 {state_key}，不發通知\n")
+            state[stock_id] = state_key
+            state_changed = True
+            time.sleep(SLEEP_SEC)
+            continue
 
         if not DEBUG and state_key != prev_key and not data.get("mom_ok", True):
             # 上月資料沒抓到 → MoM 不可信，不發通知也不寫 state，下次重跑再發
@@ -289,10 +298,10 @@ def main():
         print()
         time.sleep(SLEEP_SEC)  # 每檔間隔，避免被封
 
-    if new_alerts and not DEBUG:
+    if (new_alerts or state_changed) and not DEBUG:
         save_state(state)
         print("  💾 狀態已更新")
-    else:
+    if not new_alerts:
         print("  ℹ️  本次無新公告")
 
     if pending_charts:
