@@ -606,7 +606,12 @@ def main():
             current_order = _period_order(key)
             already_newer = any(_period_order(k) > current_order for k in notified)
 
-            if not DEBUG and key in notified:
+            if not DEBUG and stock_id not in state:
+                # 新加入名單的股票：只記錄目前最新期別當基準，不發通知，等下一季新財報
+                print(f"     🆕 新加入名單，記錄基準 {display_year}年 {display_s}，不發通知")
+                state[stock_id] = [key]
+                has_new = True
+            elif not DEBUG and key in notified:
                 print(f"     ✅ 已通知過：{display_year}年 {display_s}")
             elif not DEBUG and already_newer:
                 print(f"     ⚠️  已有更新期別，略過 {display_year}年 {display_s}")
