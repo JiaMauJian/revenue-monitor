@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
+from revenue_checker import fetch_revenue as fetch_mops_revenue
 from chart import build_fin_combined, save_quarterly_chart, get_chart_url, fetch_ttm_eps, fetch_quarter_revenue, fetch_month_revenue
 import sys
 
@@ -492,6 +493,13 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
     py, pm  = d["period"]
     monthly = fetch_month_revenue(name, stock_id, py, pm)
     if monthly is None:
+        # 月營收 API 通常比公開資訊觀測站晚幾天更新，查不到就改查觀測站
+        time.sleep(SLEEP_SEC)
+        mops, _ = fetch_mops_revenue(stock_id, is_new=False, year=str(py), month=f"{pm:02d}")
+        if isinstance(mops, dict) and mops.get("本月"):
+            monthly = mops["本月"]
+            print(f"     ℹ️  月營收 API 尚無 {py}/{pm:02d}，改用觀測站資料核對")
+    if monthly is None:
         print(f"     ℹ️  查不到 {py}/{pm:02d} 月營收，無法核對，改發原文")
         return header + content
     monthly /= 1000  # 千元 → 百萬元
@@ -562,8 +570,9 @@ def format_msg(name: str, stock_id: str, year: int, display_season: str, ratios:
         f"營業利益率 {ratios.get('operating', 0):.1f}%",
         f"淨利率　　 {ratios.get('net', 0):.1f}%",
     ]
+    if eps is not None:
+        lines.append(f"ＥＰＳ　　 {eps:.2f} 元")  # 虧損也顯示負 EPS；本益比只在獲利時計算
     if eps and eps > 0:
-        lines.append(f"ＥＰＳ　　 {eps:.2f} 元")
         if price:
             if ttm_eps and ttm_eps > 0:
                 per = round(price / ttm_eps, 1)
@@ -789,16 +798,17 @@ def main():
                             ttm_eps=ttm_eps,
                             price=price,
                         )
-                        if chart_bytes:
-                            filename = save_quarterly_chart(stock_id, chart_bytes)
-                            if filename:
-                                if DEBUG:
-                                    print(f"     🖼️  季報圖表已存（本機預覽）：charts/{filename}")
-                                else:
-                                    url = get_chart_url(filename)
-                                    if url:
-                                        pending_charts.append({"stock_id": stock_id, "url": url, "message": msg,
-                                                               "push_only": bool(problems)})
+                        filename = save_quarterly_chart(stock_id, chart_bytes) if chart_bytes else None
+                        url      = get_chart_url(filename) if filename and not DEBUG else ""
+                        if DEBUG:
+                            print(f"     🖼️  季報圖表已存（本機預覽）：charts/{filename}" if filename else "     ❌ 季報圖表產生失敗")
+                        elif url:
+                            pending_charts.append({"stock_id": stock_id, "url": url, "message": msg,
+                                                   "push_only": bool(problems)})
+                        else:
+                            # 平常只發圖片；圖表失敗時改用文字只通知自己，避免通知整個消失
+                            print(f"     ❌ 季報圖表產生失敗，改用文字 push 給自己")
+                            send_line_message(f"❌ 季報圖表產生失敗，此通知未發給其他人\n\n{msg}", mode="push")
 
                         notified.append(key)
                         state[stock_id] = notified

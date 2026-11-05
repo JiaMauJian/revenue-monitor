@@ -519,7 +519,7 @@ def build_fin_combined(stock_name: str, stock_num: str, stock_type: str,
             _per_str   = "N/A"
             _per_label = "年化PE"
 
-        _eps_str = f"{eps:.2f}" if eps and eps > 0 else "N/A"
+        _eps_str = f"{eps:.2f}" if eps is not None else "N/A"  # 虧損也顯示負 EPS
 
         fin_hr  = [0.45, 0.95, 3.5]
         fin_fig = plt.figure(figsize=(8, 7))

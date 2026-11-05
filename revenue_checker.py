@@ -280,15 +280,16 @@ def main():
                 rev_bil=rev_bil, mom_rate=mom, yoy_rate=yoy,
                 note=note, rev=rev, rev_date=rev_date,
             )
-            if chart_bytes:
-                filename = save_chart(stock_id, chart_bytes)
-                if filename:
-                    if DEBUG:
-                        print(f"     🖼️  圖表已存（本機預覽）：charts/{filename}")
-                    else:
-                        url = get_chart_url(filename)
-                        if url:
-                            pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
+            filename = save_chart(stock_id, chart_bytes) if chart_bytes else None
+            url      = get_chart_url(filename) if filename and not DEBUG else ""
+            if DEBUG:
+                print(f"     🖼️  圖表已存（本機預覽）：charts/{filename}" if filename else "     ❌ 圖表產生失敗")
+            elif url:
+                pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
+            else:
+                # 平常只發圖片；圖表失敗時改用文字只通知自己，避免通知整個消失
+                print(f"     ❌ 圖表產生失敗，改用文字 push 給自己")
+                send_line_message(f"❌ 月營收圖表產生失敗，此通知未發給其他人\n\n{msg}", mode="push")
 
             new_alerts.append(stock_id)
             state[stock_id] = state_key
