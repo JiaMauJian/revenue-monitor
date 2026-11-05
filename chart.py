@@ -600,11 +600,12 @@ def get_chart_url(filename: str) -> str:
     """
     回傳 GitHub raw URL。
     需要環境變數 GITHUB_REPOSITORY（格式：owner/repo）。
+    同一天重發時檔名相同，加上時間戳避免 raw.githubusercontent（max-age=300）與 LINE 快取到舊圖。
     """
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     if not repo:
         return ""
-    return f"https://raw.githubusercontent.com/{repo}/main/charts/{filename}"
+    return f"https://raw.githubusercontent.com/{repo}/main/charts/{filename}?v={int(datetime.now().timestamp())}"
 
 
 def cleanup_removed_charts(stocks: dict):
