@@ -99,7 +99,8 @@ def fetch_report_list(stock_id: str, year: int) -> list:
                 continue
 
             title_text = tds[4].get_text(strip=True)
-            if "財務報告" not in title_text:
+            # 有些公司標題寫「財報」（如 6187 萬潤）；非財報公告由內文解析時排除
+            if "財務報告" not in title_text and "財報" not in title_text:
                 continue
             if "預計" in title_text or "召開" in title_text:
                 continue
@@ -175,52 +176,36 @@ def fetch_report_detail(report_payload: dict) -> str:
 
 
 # ── 解析累計財務原始數字 ─────────────────────────────────
+# 財報公告（第 31 款）內文欄位固定，例如：
+#   4.1月1日累計至本期止營業收入(仟元):1,774,103
+#   8.1月1日累計至本期止本期淨利(淨損) (仟元):243,781
+#   10.1月1日累計至本期止基本每股盈餘(損失) (元):2.76
+FIN_FIELDS = {
+    "revenue":   "營業收入",
+    "gross":     "營業毛利",
+    "operating": "營業利益",
+    "net":       "本期淨利",
+    "eps":       "基本每股盈餘",
+}
+
+
 def parse_raw_financials(html: str) -> dict:
-    try:
-        soup = BeautifulSoup(html, "html.parser")
-        pre  = soup.find("pre", style=lambda s: s and "text-align" in s)
-        if not pre:
-            return {}
-
-        text = pre.get_text().strip()
-
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not api_key:
-            return {}
-
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-5-5",
-                "max_tokens": 256,
-                "thinking": {"type": "disabled"},
-                "system": (
-                    "從台股財務報告中擷取累計數字。"
-                    "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
-                    "格式：{\"revenue\":123456,\"gross\":123456,\"operating\":123456,\"net\":123456,\"eps\":21.72} "
-                    "revenue/gross/operating/net 單位仟元。eps 單位元。找不到填 0。"
-                ),
-                "messages": [{"role": "user", "content": text}],
-            },
-            timeout=20,
-        )
-
-        body = resp.json()
-        if "content" not in body:
-            print(f"     ❌ Claude API 錯誤：{body.get('error', body)}")
-            return {}
-        text_resp = next(b["text"] for b in body["content"] if b["type"] == "text")
-        text_resp = re.sub(r"```json\s*|```", "", text_resp).strip()
-        return json.loads(text_resp)
-
-    except Exception as e:
-        print(f"     ❌ parse_raw_financials 錯誤：{e}")
+    """解析財報公告的累計數字；不是財報公告（找不到營收欄位）回傳 {}。"""
+    text   = BeautifulSoup(html, "html.parser").get_text("\n")
+    result = {}
+    for key, label in FIN_FIELDS.items():
+        m = re.search(r"累計至本期止" + label + r"[^:：\n]*[:：]\s*(\(?-?[\d,]+(?:\.\d+)?\)?)", text)
+        if not m:
+            continue
+        raw = m.group(1).replace(",", "")
+        neg = raw.startswith("(") and raw.endswith(")")
+        val = float(raw.strip("()"))
+        result[key] = -val if neg else val
+    if not result.get("revenue"):
         return {}
+    for key in FIN_FIELDS:
+        result.setdefault(key, 0)
+    return result
 
 
 # ── 計算三率 ─────────────────────────────────────────────
@@ -601,36 +586,48 @@ def main():
         if not all_reports:
             print(f"     ⚠️  查無財報")
         else:
-            report  = all_reports[0]
-            year    = report["year"]
-            season  = report["season"]
-
-            display_year = year - 1 if season == "年報" else year
-            display_s    = DISPLAY_SEASON.get(season, season)
-
-            key           = f"{stock_id}_{display_year}_{display_s}"
-            current_order = _period_order(key)
-            already_newer = any(_period_order(k) > current_order for k in notified)
-
-            if not DEBUG and stock_id not in state:
-                # 新加入名單的股票：只記錄目前最新期別當基準，不發通知，等下一季新財報
-                print(f"     🆕 新加入名單，記錄基準 {display_year}年 {display_s}，不發通知")
-                state[stock_id] = [key]
-                has_new = True
-            elif not DEBUG and key in notified:
-                print(f"     ✅ 已通知過：{display_year}年 {display_s}")
-            elif not DEBUG and already_newer:
-                print(f"     ⚠️  已有更新期別，略過 {display_year}年 {display_s}")
-            else:
-                print(f"     🔔 新財報：{display_year}年 {display_s}（單季）")
+            # 由新到舊找第一份內文確實是財報的公告
+            # （標題含「財報」的也可能是召集通知、背書保證等，靠內文欄位排除）
+            report, curr_raw = None, None
+            for cand in all_reports:
+                c_year_d = cand["year"] - 1 if cand["season"] == "年報" else cand["year"]
+                c_s      = DISPLAY_SEASON.get(cand["season"], cand["season"])
+                c_key    = f"{stock_id}_{c_year_d}_{c_s}"
+                if not DEBUG and stock_id in state:
+                    if c_key in notified:
+                        print(f"     ✅ 已通知過：{c_year_d}年 {c_s}")
+                        break
+                    if any(_period_order(k) > _period_order(c_key) for k in notified):
+                        print(f"     ⚠️  已有更新期別，略過 {c_year_d}年 {c_s}")
+                        break
 
                 time.sleep(SLEEP_SEC)
-                html     = fetch_report_detail(report["payload"])
-                curr_raw = parse_raw_financials(html) if html else {}
+                html = fetch_report_detail(cand["payload"])
+                if not html:
+                    print(f"     ⚠️  無法取得公告內文，本次略過")
+                    break
+                raw = parse_raw_financials(html)
+                if raw:
+                    report, curr_raw = cand, raw
+                    break
+                print(f"     ↪️  非財報公告，略過：{cand['title']}")
 
-                if not curr_raw or curr_raw.get("revenue", 0) == 0:
-                    print(f"       ⚠️  無法解析財務數字，本次略過")
+            if report:
+                year    = report["year"]
+                season  = report["season"]
+
+                display_year = year - 1 if season == "年報" else year
+                display_s    = DISPLAY_SEASON.get(season, season)
+                key          = f"{stock_id}_{display_year}_{display_s}"
+
+                if not DEBUG and stock_id not in state:
+                    # 新加入名單的股票：只記錄目前最新期別當基準，不發通知，等下一季新財報
+                    print(f"     🆕 新加入名單，記錄基準 {display_year}年 {display_s}，不發通知")
+                    state[stock_id] = [key]
+                    has_new = True
                 else:
+                    print(f"     🔔 新財報：{display_year}年 {display_s}（單季）")
+
                     prev_season = PREV_SEASON.get(season)
                     single_raw  = None
 
@@ -638,46 +635,27 @@ def main():
                         single_raw = curr_raw
                     else:
                         if season == "年報":
-                            prev_report = find_report(
-                                [r for r in all_reports if r["year"] == year - 1], "Q3"
-                            ) or find_report(all_reports, "Q3")
+                            prev_cands = [r for r in all_reports if r["year"] == year - 1 and r["season"] == "Q3"]                                       or [r for r in all_reports if r["season"] == "Q3"]
                         else:
-                            prev_report = find_report(
-                                [r for r in all_reports if r["year"] == year], prev_season
-                            )
+                            prev_cands = [r for r in all_reports if r["year"] == year and r["season"] == prev_season]
 
-                        if not prev_report:
-                            print(f"       ⚠️  找不到 {prev_season}，無法計算單季，本次略過")
-                        else:
+                        prev_raw = {}
+                        for prev_report in prev_cands:
                             time.sleep(SLEEP_SEC)
                             prev_html = fetch_report_detail(prev_report["payload"])
-                            prev_raw  = parse_raw_financials(prev_html) if prev_html else {}
+                            if not prev_html:
+                                break
+                            prev_raw = parse_raw_financials(prev_html)
+                            if prev_raw:
+                                break
 
-                            if not prev_raw or prev_raw.get("revenue", 0) == 0:
-                                print(f"       ⚠️  前期 {prev_season} 資料解析失敗，改用累計")
-                                single_raw = curr_raw
-                            else:
-                                single_raw = {
-                                    "revenue":   curr_raw["revenue"]   - prev_raw["revenue"],
-                                    "gross":     curr_raw["gross"]     - prev_raw["gross"],
-                                    "operating": curr_raw["operating"] - prev_raw["operating"],
-                                    "net":       curr_raw["net"]       - prev_raw["net"],
-                                    "eps":       curr_raw.get("eps", 0) - prev_raw.get("eps", 0),
-                                }
-                                if all(single_raw[k] == 0 for k in ["revenue", "gross", "operating", "net", "eps"]):
-                                    print(f"       🔍 單季 EPS = 0，重新抓前期資料確認...")
-                                    time.sleep(SLEEP_SEC)
-                                    prev_html2 = fetch_report_detail(prev_report["payload"])
-                                    prev_raw2  = parse_raw_financials(prev_html2) if prev_html2 else {}
-                                    if prev_raw2 and prev_raw2.get("revenue", 0) > 0:
-                                        single_raw = {
-                                            "revenue":   curr_raw["revenue"]   - prev_raw2["revenue"],
-                                            "gross":     curr_raw["gross"]     - prev_raw2["gross"],
-                                            "operating": curr_raw["operating"] - prev_raw2["operating"],
-                                            "net":       curr_raw["net"]       - prev_raw2["net"],
-                                            "eps":       curr_raw.get("eps", 0) - prev_raw2.get("eps", 0),
-                                        }
-                                        print(f"       ✅ 確認後單季 EPS = {single_raw['eps']:.2f}")
+                        if not prev_cands:
+                            print(f"       ⚠️  找不到 {prev_season}，無法計算單季，本次略過")
+                        elif not prev_raw:
+                            # 不可改用累計數字發通知，下次執行再試
+                            print(f"       ⚠️  前期 {prev_season} 資料取得或解析失敗，本次略過")
+                        else:
+                            single_raw = {k: curr_raw[k] - prev_raw[k] for k in FIN_FIELDS}
 
                     if single_raw:
                         ratios = calc_ratios(
