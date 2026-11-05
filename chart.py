@@ -331,7 +331,7 @@ def build_quarterly_chart(stock_name: str, stock_num: str, stock_type: str = "",
 
         plot_line(gross_rates,      "#1f77b4", "D", "毛利率")
         plot_line(operating_rates,  "#d62728", "s", "營業利益率")
-        plot_line(net_rates,        "#ff7f0e", "^", "(稅後)純益率")
+        plot_line(net_rates,        "#9b5de5", "^", "(稅後)純益率")
 
         ax.axhline(0, color="gray", linewidth=0.8, linestyle="--", alpha=0.5)
         ax.set_xticks(x)
