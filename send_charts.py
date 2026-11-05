@@ -26,10 +26,19 @@ def main():
         stock_id = item.get("stock_id", "")
         url      = item.get("url", "")
         message  = item.get("message", "")
+        push_only = item.get("push_only", False)
         if message:
             print(message)
             time.sleep(0.5)
-        if url:
+        if push_only:
+            # 未通過自動驗證：只發給自己（LINE_USER_ID），附上警告文字，不 broadcast
+            print(f"  ⚠️  {stock_id} 未通過驗證，僅 push 給自己")
+            send_line_message(message, mode="push")
+            time.sleep(0.5)
+            if url:
+                send_line_image(url, mode="push")
+                time.sleep(0.5)
+        elif url:
             send_line_image(url, mode="broadcast")
             time.sleep(0.5)
 

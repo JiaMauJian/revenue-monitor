@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
-from chart import build_fin_combined, save_quarterly_chart, get_chart_url, fetch_ttm_eps
+from chart import build_fin_combined, save_quarterly_chart, get_chart_url, fetch_ttm_eps, fetch_quarter_revenue
 import sys
 
 load_dotenv()
@@ -185,6 +185,7 @@ FIN_FIELDS = {
     "gross":     "營業毛利",
     "operating": "營業利益",
     "net":       "本期淨利",
+    "parent":    "歸屬於母公司業主淨利",
     "eps":       "基本每股盈餘",
 }
 
@@ -206,6 +207,34 @@ def parse_raw_financials(html: str) -> dict:
     for key in FIN_FIELDS:
         result.setdefault(key, 0)
     return result
+
+
+# ── 驗證單季數字 ─────────────────────────────────────────
+def validate_single(single: dict, cumulative: dict, monthly_rev: float | None) -> list:
+    """回傳問題清單；空清單代表通過。主要防止把累計數字當成單季。"""
+    problems = []
+    rev = single["revenue"]
+    if rev <= 0:
+        return [f"單季營收 {rev:,.0f} 不大於 0"]
+
+    # 1. 單季營收應等於該季三個月月營收合計
+    if monthly_rev:
+        diff = (rev - monthly_rev) / monthly_rev
+        if abs(diff) > 0.03:
+            problems.append(f"單季營收 {rev:,.0f} 與月營收合計 {monthly_rev:,.0f} 相差 {diff:+.1%}")
+
+    # 2. 毛利不可大於營收
+    if single["gross"] > rev:
+        problems.append(f"毛利 {single['gross']:,.0f} 大於營收 {rev:,.0f}")
+
+    # 3. 單季 EPS ≈ 單季母公司淨利 × 累計EPS / 累計母公司淨利
+    parent, eps = single.get("parent", 0), single.get("eps", 0)
+    if parent and cumulative.get("parent") and cumulative.get("eps"):
+        expected = parent * cumulative["eps"] / cumulative["parent"]
+        if abs(eps - expected) > max(0.05, abs(expected) * 0.1):
+            problems.append(f"單季 EPS {eps:.2f} 與淨利推算的 {expected:.2f} 不符")
+
+    return problems
 
 
 # ── 計算三率 ─────────────────────────────────────────────
@@ -681,6 +710,18 @@ def main():
                                 print(f"       ⚠️  無法取得近四季EPS，改用年化")
 
                         msg = format_msg(name, stock_id, display_year, display_s, ratios, stock_type, eps, price, ttm_eps)
+
+                        # 自動驗證；沒通過就只 push 給自己確認，不 broadcast
+                        monthly_rev = fetch_quarter_revenue(name, stock_id, display_year, display_s)
+                        problems    = validate_single(single_raw, curr_raw, monthly_rev)
+                        if monthly_rev is None:
+                            print(f"       ℹ️  月營收資料不齊，略過營收對帳")
+                        if problems:
+                            print(f"       ⚠️  未通過驗證，僅 push 給自己：{'；'.join(problems)}")
+                            warn = "\n".join(f"・{p}" for p in problems)
+                            msg  = f"⚠️ 數字未通過自動驗證，請確認\n{warn}\n\n{msg}"
+                        else:
+                            print(f"       ✅ 驗證通過")
                         print(msg)
 
                         # 產生季報獲利指標圖表（帶入最新季資料，避免 API 尚未更新）
@@ -700,7 +741,8 @@ def main():
                                 else:
                                     url = get_chart_url(filename)
                                     if url:
-                                        pending_charts.append({"stock_id": stock_id, "url": url, "message": msg})
+                                        pending_charts.append({"stock_id": stock_id, "url": url, "message": msg,
+                                                               "push_only": bool(problems)})
 
                         notified.append(key)
                         state[stock_id] = notified
