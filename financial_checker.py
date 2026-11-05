@@ -12,14 +12,13 @@ import requests
 from bs4 import BeautifulSoup
 import urllib3
 import json
-import os
 import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from dotenv import load_dotenv
 from line_notify import send_line_message
-from chart import build_fin_combined, save_quarterly_chart, get_chart_url, fetch_ttm_eps, fetch_quarter_revenue
+from chart import build_fin_combined, save_quarterly_chart, get_chart_url, fetch_ttm_eps, fetch_quarter_revenue, fetch_month_revenue
 import sys
 
 load_dotenv()
@@ -315,7 +314,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
             title_text = tds[4].get_text(strip=True)
             if "注意交易資訊" not in title_text and "注意股" not in title_text:
                 continue
-            if "可轉換公司債" in title_text:
+            if "轉換公司債" in title_text:  # 含「無擔保轉換公司債」，內文只有可轉債資訊、沒有自結數字
                 continue
 
             btn = tr.find("input", {"type": "button", "value": "詳細資料"})
@@ -372,6 +371,12 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
                 continue
 
             content = pre.get_text().strip()
+            if "公司債相關資訊" in content:
+                # 可轉債的注意交易公告（標題不一定寫「轉換公司債」），沒有自結數字，不發
+                notified.append(key)
+                state[state_key] = notified
+                print(f"     ⏭️  可轉債公告，略過：{spoke_date}")
+                return True
             msg     = parse_attention_summary(name, stock_id, spoke_date, content, stock_type)
 
             send_line_message(msg, mode="push" if DEBUG else "broadcast")
@@ -393,6 +398,79 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
     return False
 
 
+# ── 注意股公告解析（正規表達式）───────────────────────────
+# 各公司表格寫法不一，但都是「科目(單位)  最近一月  ...  最近一季 ...」，
+# 每列第一個非百分比數字就是最近一月。以 115/08–11 全市場 253 份公告驗證。
+_ATTN_NUM    = re.compile(r"\(?-?\d[\d,]*(?:\.\d+)?\)?%?")
+# 每個欄位依序嘗試的科目名稱（淨利優先用「歸屬母公司」，沒有才用本期 / 稅後淨利）
+_ATTN_FIELDS = {
+    "revenue":  ["營業收入"],
+    "pretax":   ["稅前"],
+    "aftertax": ["歸屬", "本期淨", "稅後淨"],
+    "eps":      ["每股"],
+}
+
+
+def _attn_first_number(s: str):
+    """取字串中第一個不是百分比的數字（括號視為負數）。"""
+    s = re.sub(r"\(?註\s*\d+\)?", "", s)
+    for m in _ATTN_NUM.finditer(s):
+        tok = m.group()
+        if tok.endswith("%") or s[m.end():m.end() + 1] == "%":
+            continue
+        tok = tok.rstrip("%")
+        neg = tok.startswith("(") and tok.endswith(")")
+        v   = float(tok.strip("()").replace(",", ""))
+        return -abs(v) if neg else v
+    return None
+
+
+def _attn_scale(label: str, section: str) -> float:
+    """換算成百萬元的倍數：先看科目名稱，再看整段的單位說明；都沒寫就當百萬元。"""
+    for txt in (label, section):
+        if re.search(r"仟元|千元", txt):
+            return 1 / 1000
+        if "百萬" in txt:
+            return 1
+        if "億" in txt:
+            return 100
+    return 1
+
+
+def parse_attention_numbers(content: str) -> dict:
+    """解析注意股公告的最近一月自結數字。金額單位百萬元，抓不到的欄位不放。"""
+    m       = re.search(r"3\s*\.(.*?)(?:\n\s*4\s*\.|\Z)", content, re.S)
+    section = m.group(1) if m else content
+    lines   = section.split("\n")
+    out     = {}
+
+    # 表頭第一個「115年7月」或「(115/07)」就是最近一月（只認同一行內，避免直排表頭跨行誤判）
+    pm = re.search(r"(\d{3})[ \t]*年[ \t]*0?(\d{1,2})[ \t]*月|(?<![\d/])(\d{3})/(\d{1,2})(?![\d/])", section)
+    if pm:
+        y, mth = (pm.group(1), pm.group(2)) if pm.group(1) else (pm.group(3), pm.group(4))
+        out["period"] = (int(y), int(mth))
+
+    for key, label_pats in _ATTN_FIELDS.items():
+        v = None
+        for label_pat in label_pats:
+            for i, line in enumerate(lines):
+                lm = re.search(label_pat, line)
+                if not lm:
+                    continue
+                label, v = line, _attn_first_number(line[lm.end():])
+                # 科目名稱跨行（如「歸屬母公司\n 業主淨利\n（百萬元）  194」）：往下最多再看兩行
+                for nxt in lines[i + 1:i + 3]:
+                    if v is not None:
+                        break
+                    label, v = label + nxt, _attn_first_number(nxt)
+                if v is not None:
+                    out[key] = v if key == "eps" else v * _attn_scale(label, section)
+                    break
+            if v is not None:
+                break
+    return out
+
+
 def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: str, stock_type: str = "") -> str:
 
     year_roc = int(spoke_date[:4]) - 1911
@@ -404,52 +482,30 @@ def parse_attention_summary(name: str, stock_id: str, spoke_date: str, content: 
     if cut:
         content = cut.group(1).strip()
 
-    try:
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": os.environ["ANTHROPIC_API_KEY"],
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-haiku-5-5",
-                "max_tokens": 256,
-                "thinking": {"type": "disabled"},
-                "system": (
-                    "從台股注意股公告中擷取「最近一月自結」的財務數字。"
-                    "只回傳純 JSON 物件，絕對不要加 markdown、```json 或任何說明。"
-                    "格式：{\"period\":\"115/02\",\"revenue\":4179,\"pretax\":1969,\"aftertax\":1561,\"eps\":16.22} "
-                    "金額單位統一換算成百萬元。找不到填 null。"
-                ),
-                "messages": [{"role": "user", "content": content}],
-            },
-            timeout=20,
-        )
-        body = resp.json()
-        if "content" not in body:
-            print(f"     ❌ Claude API 錯誤：{body.get('error', body)}")
+    d   = parse_attention_numbers(content)
+    rev = d.get("revenue")
+    if not rev or "period" not in d:
+        print(f"     ℹ️  注意股公告抓不到營收或月份，改發原文")
+        return header + content
+
+    # 用月營收 API 交叉核對，對不上就發原文（公司自結數有時本身有誤或單位未標示）
+    py, pm  = d["period"]
+    monthly = fetch_month_revenue(name, stock_id, py, pm)
+    if monthly is None:
+        print(f"     ℹ️  查不到 {py}/{pm:02d} 月營收，無法核對，改發原文")
+        return header + content
+    monthly /= 1000  # 千元 → 百萬元
+    if abs(rev - monthly) > max(monthly * 0.05, 0.6):
+        if abs(rev / 1000 - monthly) <= max(monthly * 0.05, 0.6):
+            # 公告未標單位、實際為仟元
+            d = {k: (v / 1000 if k in ("revenue", "pretax", "aftertax") else v) for k, v in d.items()}
+            rev = d["revenue"]
+        else:
+            print(f"     ⚠️  注意股營收 {rev:,.1f} 百萬與月營收 {monthly:,.1f} 百萬不符，改發原文")
             return header + content
-        text = next(b["text"] for b in body["content"] if b["type"] == "text")
-        text = re.sub(r"```json\s*|```", "", text).strip()
-        d = json.loads(text)
-    except Exception as e:
-        print(f"     ❌ Claude 解析失敗：{e}")
-        return header + content
 
-    rev    = d.get("revenue") or 0
-    pre    = d.get("pretax")
-    aft    = d.get("aftertax")
-    eps    = d.get("eps")
-    period_raw = d.get("period", "")
-    if period_raw and "/" in period_raw:
-        py, pm = period_raw.split("/", 1)
-        period_fmt = f"{py}年{pm.zfill(2)}月"
-    else:
-        period_fmt = period_raw or "最近一月"
-
-    if not rev:
-        return header + content
+    pre, aft, eps = d.get("pretax"), d.get("aftertax"), d.get("eps")
+    period_fmt    = f"{py}年{pm:02d}月"
 
     rev_bil = rev / 100         # 百萬元 → 億元
 

@@ -88,23 +88,34 @@ def fetch_ttm_eps(stock_name: str, stock_num: str,
         return None
 
 
-def fetch_quarter_revenue(stock_name: str, stock_num: str, year_roc: int, quarter: str) -> float | None:
-    """用 Revenue API 加總該季三個月的月營收（千元），用來驗證財報單季營收。
-    quarter 為 "Q1"～"Q4"；三個月不齊或失敗時回傳 None。"""
+def _fetch_monthly_revenues(stock_name: str, stock_num: str, year_roc: int, months: list) -> list | None:
+    """用 Revenue API 取指定月份的月營收（千元）；任一個月沒資料或失敗回傳 None。"""
     try:
         data   = _call("Revenue", stock_name, stock_num)
         values = dict(zip(data[2], data[3]))
-        q      = int(quarter[1])
-        total  = 0.0
-        for m in range(q * 3 - 2, q * 3 + 1):
+        result = []
+        for m in months:
             v = values.get(f"{year_roc + 1911}/{m:02d}")
             if v in (None, "") or float(v) == 999999.999:  # API 以此哨兵值表示無資料
                 return None
-            total += float(v)
-        return total
+            result.append(float(v))
+        return result
     except Exception as e:
-        print(f"     ⚠️  fetch_quarter_revenue 失敗：{e}")
+        print(f"     ⚠️  月營收查詢失敗：{e}")
         return None
+
+
+def fetch_month_revenue(stock_name: str, stock_num: str, year_roc: int, month: int) -> float | None:
+    """單月營收（千元），用來核對注意股公告的自結營收。"""
+    r = _fetch_monthly_revenues(stock_name, stock_num, year_roc, [month])
+    return r[0] if r else None
+
+
+def fetch_quarter_revenue(stock_name: str, stock_num: str, year_roc: int, quarter: str) -> float | None:
+    """該季三個月的月營收合計（千元），用來驗證財報單季營收。quarter 為 "Q1"～"Q4"。"""
+    q = int(quarter[1])
+    r = _fetch_monthly_revenues(stock_name, stock_num, year_roc, list(range(q * 3 - 2, q * 3 + 1)))
+    return sum(r) if r else None
 
 
 def _call(endpoint: str, stock_name: str, stock_num: str) -> dict:
