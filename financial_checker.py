@@ -287,27 +287,34 @@ def fetch_price(stock_id: str, stock_name: str) -> float | None:
 
 # ── 注意股公告 ───────────────────────────────────────────
 def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str = "") -> bool:
-    payload = {
-        "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
-        "keyword4": "", "code1": "", "TYPEK2": "", "checkbtn": "",
-        "queryName": "co_id", "inpuType": "co_id", "TYPEK": "all",
-        "co_id": stock_id, "year": str(ROC_YEAR), "month": "", "b_date": "", "e_date": "",
-    }
+    # 1 月時一併查去年，避免 12 月底的公告在跨年後查不到而漏發
+    years = [ROC_YEAR, ROC_YEAR - 1] if datetime.now().month == 1 else [ROC_YEAR]
 
     try:
-        resp = requests.post(URL_FIN, headers=HEADERS, data=payload, verify=False, timeout=20)
-        resp.encoding = "utf-8"
+        rows = []  # (年度, tr)，由新到舊
+        for idx, year in enumerate(years):
+            if idx:
+                time.sleep(SLEEP_SEC)
+            payload = {
+                "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
+                "keyword4": "", "code1": "", "TYPEK2": "", "checkbtn": "",
+                "queryName": "co_id", "inpuType": "co_id", "TYPEK": "all",
+                "co_id": stock_id, "year": str(year), "month": "", "b_date": "", "e_date": "",
+            }
+            resp = requests.post(URL_FIN, headers=HEADERS, data=payload, verify=False, timeout=20)
+            resp.encoding = "utf-8"
 
-        if "查詢過於頻繁" in resp.text or resp.status_code == 403:
-            return False
+            if "查詢過於頻繁" in resp.text or resp.status_code == 403:
+                return False
 
-        soup = BeautifulSoup(resp.text, "html.parser")
+            soup  = BeautifulSoup(resp.text, "html.parser")
+            rows += [(year, tr) for tr in reversed(soup.find_all("tr"))]
 
         state_key      = f"{stock_id}_attention"
         is_first_check = state_key not in state
         today_str      = datetime.now().strftime("%Y%m%d")
 
-        for tr in reversed(soup.find_all("tr")):
+        for year, tr in rows:
             tds = tr.find_all("td")
             if len(tds) < 5:
                 continue
@@ -360,7 +367,7 @@ def check_attention_stock(stock_id: str, name: str, state: dict, stock_type: str
                 "spoke_date": spoke_date,
                 "co_id":      co_id,
                 "TYPEK":      typek,
-                "year":       str(ROC_YEAR),
+                "year":       str(year),
                 "month":      "all",
             }
 
