@@ -195,12 +195,15 @@ def parse_raw_financials(html: str) -> dict:
     text   = BeautifulSoup(html, "html.parser").get_text("\n")
     result = {}
     for key, label in FIN_FIELDS.items():
-        m = re.search(r"累計至本期止" + label + r"[^:：\n]*[:：]\s*(\(?-?[\d,]+(?:\.\d+)?\)?)", text)
+        m = re.search(r"累計至本期止" + label + r"[^:：\n]*[:：]\s*(\(?-?[\d,.]+\)?)", text)
         if not m:
             continue
         raw = m.group(1).replace(",", "")
+        if key != "eps":
+            # 仟元欄位不會有小數，「.」只可能是千分位筆誤（如 6187 115Q2 的 1.111,110）
+            raw = raw.replace(".", "")
         neg = raw.startswith("(") and raw.endswith(")")
-        val = float(raw.strip("()"))
+        val = float(raw.strip("()").rstrip("."))
         result[key] = -val if neg else val
     if not result.get("revenue"):
         return {}
